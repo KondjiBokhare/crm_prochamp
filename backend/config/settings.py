@@ -31,7 +31,7 @@ DEBUG = os.getenv('DEBUG') == 'True'
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    "adjust-namespace-williams-struct.trycloudflare.com",
+    # "adjust-namespace-williams-struct.trycloudflare.com",
 ]
 
 # Optional public storefront tenant ID for multi-organization deployments.
