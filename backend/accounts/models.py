@@ -23,6 +23,7 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
+        extra_fields.setdefault("role", "ADMIN")
 
         return self.create_user(
             email=email,
@@ -31,26 +32,54 @@ class UserManager(BaseUserManager):
         )
 
 
+class Organization(models.Model):
+
+    name = models.CharField(
+        max_length=150,
+        unique=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+    def __str__(self):
+        return self.name
+
+
 class User(AbstractUser):
+
     class Role(models.TextChoices):
         ADMIN = "ADMIN", "Admin"
+        CUSTOMER = "CUSTOMER", "Customer"
         SALES = "SALES", "Sales"
         MARKETING = "MARKETING", "Marketing"
         SUPPORT = "SUPPORT", "Support"
+        OPERATIONS = "OPERATIONS", "Operations"
         MANAGEMENT = "MANAGEMENT", "Management"
-        ANALYST = "ANALYST", "Analyst"
 
     username = None
 
     email = models.EmailField(
-        unique=True,
-        db_index=True
+        unique=True
     )
 
     role = models.CharField(
         max_length=20,
         choices=Role.choices,
         default=Role.SALES
+    )
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="users",
+        null=True,
+        blank=True
     )
 
     USERNAME_FIELD = "email"
