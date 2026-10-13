@@ -26,9 +26,16 @@ load_dotenv(BASE_DIR / '.env')
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG') == 'True'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    # "adjust-namespace-williams-struct.trycloudflare.com",
+]
+
+# Optional public storefront tenant ID for multi-organization deployments.
+STOREFRONT_ORGANIZATION_ID = os.getenv("STOREFRONT_ORGANIZATION_ID")
 
 
 # Application definition
@@ -41,10 +48,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+      "rest_framework_simplejwt.token_blacklist",
+    'corsheaders',
     'accounts',
+    'crm',
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -88,10 +99,27 @@ DATABASES = {
     }
 }
 
+from datetime import timedelta
+
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+     "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
+}
+
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 # Password validation
@@ -141,3 +169,13 @@ MAILERS = {
 }
 
 AUTH_USER_MODEL = "accounts.User"
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "https://improve-cheque-clip-isolation.trycloudflare.com",
+]
+CSRF_TRUSTED_ORIGINS = [
+    "https://improve-cheque-clip-isolation.trycloudflare.com",
+]
+# Private storefront profile images are served only through authenticated API views.
+MEDIA_ROOT = BASE_DIR / "media"

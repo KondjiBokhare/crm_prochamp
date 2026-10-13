@@ -1,31 +1,51 @@
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
-
-# Virtual environment
-venv/
 .venv/
+venv/
 env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Django
-db.sqlite3
-*.log
-staticfiles/
+# Django generated files
+backend/staticfiles/
 
-# Environment variables
-.env
-.env.*
-
-# Node
+# Node.js and React
 node_modules/
-dist/
-build/
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
 
-# IDE / Editor
-.vscode/
-.idea/
+# Local databases
+*.sqlite3
+*.db
 
-# OS
+# Logs
+*.log
+
+# Operating system files
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# Editor settings
+.idea/
+
+# Optional: uncomment if backend/media contains
+# user-uploaded files or private customer images
+# backend/media/

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="400" viewBox="0 0 500 400">
+<rect width="500" height="400" fill="#ffffff"/>
+<rect x="25" y="25" width="450" height="350" rx="22" fill="#f8fafc" stroke="#2563eb" stroke-opacity="0.18"/>
+<g transform="translate(0 10) rotate(3 250 180)"><rect x="120" y="55" width="260" height="155" rx="12" fill="white" stroke="#2563eb" stroke-width="12"/><rect x="145" y="80" width="210" height="100" rx="6" fill="#2563eb" opacity="0.15"/><path d="M90 235h320l-28 28H118z" fill="#2563eb"/></g>
+<text x="250" y="350" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#0f172a">ASUS Vivobook 16X</text>
+<text x="250" y="374" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">TechGear product illustration</text>
+</svg>
