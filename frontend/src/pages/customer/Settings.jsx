@@ -20,6 +20,11 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { useCustomerNotificationPreferences } from "../../hooks/useCustomerNotificationPreferences";
+import {
+  getThemePreference,
+  setThemePreference,
+  subscribeToThemeChanges,
+} from "../../services/themeService";
 
 function Settings() {
   const navigate = useNavigate();
@@ -28,9 +33,7 @@ function Settings() {
   // =========================================
   // THEME
   // =========================================
-  const [theme, setTheme] = useState(
-    () => localStorage.getItem("techgear_theme") || "light"
-  );
+  const [theme, setTheme] = useState(() => getThemePreference());
 
   // =========================================
   // NOTIFICATIONS
@@ -43,56 +46,12 @@ function Settings() {
   const [personalizedRecommendations, setPersonalizedRecommendations] =
     useState(true);
 
-  // =========================================
-  // APPLY THEME
-  // =========================================
+  // Keep the Settings selection synchronized with the Navbar quick toggle.
   useEffect(() => {
-    let appliedTheme = theme;
-
-    if (theme === "system") {
-      const prefersDark = window.matchMedia(
-        "(prefers-color-scheme: dark)"
-      ).matches;
-
-      appliedTheme = prefersDark ? "dark" : "light";
-    }
-
-    document.documentElement.setAttribute(
-      "data-theme",
-      appliedTheme
-    );
-
-    localStorage.setItem(
-      "techgear_theme",
-      theme
-    );
-
-    // Listen for system theme changes
-    if (theme === "system") {
-      const mediaQuery = window.matchMedia(
-        "(prefers-color-scheme: dark)"
-      );
-
-      const handleSystemThemeChange = (event) => {
-        document.documentElement.setAttribute(
-          "data-theme",
-          event.matches ? "dark" : "light"
-        );
-      };
-
-      mediaQuery.addEventListener(
-        "change",
-        handleSystemThemeChange
-      );
-
-      return () => {
-        mediaQuery.removeEventListener(
-          "change",
-          handleSystemThemeChange
-        );
-      };
-    }
-  }, [theme]);
+    return subscribeToThemeChanges(({ preference }) => {
+      setTheme(preference);
+    });
+  }, []);
 
   // =========================================
   // LOGOUT
@@ -170,7 +129,7 @@ function Settings() {
                   ? "active"
                   : ""
               }`}
-              onClick={() => setTheme("light")}
+              onClick={() => setThemePreference("light")}
             >
               <div className="theme-option-icon">
                 <Sun size={20} />
@@ -197,7 +156,7 @@ function Settings() {
                   ? "active"
                   : ""
               }`}
-              onClick={() => setTheme("dark")}
+              onClick={() => setThemePreference("dark")}
             >
               <div className="theme-option-icon">
                 <Moon size={20} />
@@ -224,7 +183,7 @@ function Settings() {
                   ? "active"
                   : ""
               }`}
-              onClick={() => setTheme("system")}
+              onClick={() => setThemePreference("system")}
             >
               <div className="theme-option-icon">
                 <Monitor size={20} />

@@ -1,3 +1,4 @@
+import "../../styles/store.css";
 import HeroBanner from "../../components/home/HeroBanner";
 import PromoBannerSection from "../../components/home/PromoBannerSection";
 import BestSellingSection from "../../components/home/BestSellingSection";

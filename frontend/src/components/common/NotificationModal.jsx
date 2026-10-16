@@ -1,4 +1,4 @@
-import { Bell, CheckCheck, CreditCard, Package, Tag, MessageSquare, X } from "lucide-react";
+import { Bell, CheckCheck, CreditCard, Package, Tag, MessageSquare, Star, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 function NotificationModal({ notifications = [], onClose, onMarkAllRead, onMarkRead }) {
@@ -11,6 +11,7 @@ function NotificationModal({ notifications = [], onClose, onMarkAllRead, onMarkR
       case "offer": return <Tag size={18} />;
       case "payment": return <CreditCard size={18} />;
       case "support": return <MessageSquare size={18} />;
+      case "review": return <Star size={18} />;
       default: return <Bell size={18} />;
     }
   };

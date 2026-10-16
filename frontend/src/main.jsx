@@ -7,6 +7,9 @@ import "./styles/store.css";
 import { AuthProvider } from "./context/AuthContext";
 import { CartProvider } from "./context/CartContext";
 import { WishlistProvider } from "./context/WishlistContext";
+import { initializeTheme } from "./services/themeService";
+
+initializeTheme();
 
 ReactDOM.createRoot(
   document.getElementById("root")

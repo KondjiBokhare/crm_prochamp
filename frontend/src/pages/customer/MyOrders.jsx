@@ -1,5 +1,6 @@
 import { Search, ChevronDown } from "lucide-react";
-import AccountSidebar from "../../components/orders/AccountSidebar";
+import { useSearchParams } from "react-router-dom";
+ 
 import OrderCard from "../../components/orders/OrderCard";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getDemoOrders } from "../../services/demoOrderService";
@@ -23,7 +24,12 @@ function toOrderCard(order) {
     currentStep: status === "Delivered" ? 5 : status === "Shipped" ? 3 : status === "Processing" ? 1 : 0,
     deliveryMessage: order.demoOnly ? "Demo order only — shipment has not been booked." : (order.deliveryMessage || "Check your latest order status."),
     action: null,
-    items: (order.items || []).map((item, index) => ({ ...item, id: item.id ?? `${order.id}-${index}`, image: item.image || item.images?.[0] || "" })),
+    items: (order.items || []).map((item, index) => ({
+      ...item,
+      id: item.id ?? `${order.id}-${index}`,
+      productId: item.productId ?? item.product_id ?? item.catalogProductId ?? item.product?.id ?? item.id ?? null,
+      image: item.image || item.images?.[0] || item.product?.image || "",
+    })),
     total: Number(order.total) || 0,
   };
 }
@@ -35,6 +41,9 @@ function MyOrders() {
   const [period, setPeriod] = useState("all");
   const [loadError, setLoadError] = useState("");
   const { user, authenticatedRequest } = useAuth();
+  const [searchParams] = useSearchParams();
+  const reviewOrderQuery = searchParams.get("reviewOrder") || "";
+  const reviewProductQuery = searchParams.get("productId") || "";
 
   const refreshOrders = useCallback(async () => {
     if (!storefrontOrdersApiEnabled) {
@@ -73,7 +82,7 @@ function MyOrders() {
       window.removeEventListener("storage", refreshOrders);
       window.removeEventListener("techgear:demo-orders-updated", refreshOrders);
     };
-  }, [refreshOrders]);
+  }, [refreshOrders, reviewOrderQuery, reviewProductQuery]);
 
   const counts = useMemo(() => ORDER_FILTERS.reduce((result, label) => {
     result[label] = label === "All Orders" ? orders.length : orders.filter((order) => order.status === label).length;
@@ -94,7 +103,7 @@ function MyOrders() {
 
   return (
     <div className="orders-page">
-      <AccountSidebar />
+    
       <main className="orders-main">
         <div className="orders-heading">
           <div><h1>My Orders</h1><p>{storefrontOrdersApiEnabled ? "Your orders are securely loaded from your customer account and shared with CRM." : "View orders created from this account in this browser demo."}</p></div>

@@ -1,3 +1,4 @@
+
 import {
   SlidersHorizontal,
   Grid2X2,
@@ -9,95 +10,78 @@ function ProductToolbar({
   onFilterClick,
   sortValue,
   onSortChange,
+  viewMode = "grid",
+  onViewModeChange = () => {},
 }) {
   return (
     <div className="product-toolbar">
-
-      {/* Left */}
       <div className="toolbar-left">
-
         <span className="result-count">
           {resultCount} products
         </span>
 
-        {/* Filter */}
         <button
           type="button"
           className={`toolbar-filter-button ${
-            typeof onFilterClick ===
-              "function"
+            typeof onFilterClick === "function"
               ? ""
               : "disabled"
           }`}
           onClick={onFilterClick}
+          disabled={typeof onFilterClick !== "function"}
         >
           <SlidersHorizontal size={15} />
-
           <span>Filter</span>
-
-          <span className="filter-chevron">
-            ▾
-          </span>
+          <span className="filter-chevron">▾</span>
         </button>
-
       </div>
 
-      {/* Right */}
       <div className="toolbar-right">
-
-        {/* Grid */}
         <button
           type="button"
-          className="view-toggle active"
+          className={`view-toggle ${
+            viewMode === "grid" ? "active" : ""
+          }`}
           aria-label="Grid view"
+          aria-pressed={viewMode === "grid"}
+          onClick={() => onViewModeChange("grid")}
         >
           <Grid2X2 size={16} />
         </button>
 
-        {/* List */}
         <button
           type="button"
-          className="view-toggle"
+          className={`view-toggle ${
+            viewMode === "list" ? "active" : ""
+          }`}
           aria-label="List view"
+          aria-pressed={viewMode === "list"}
+          onClick={() => onViewModeChange("list")}
         >
           <List size={16} />
         </button>
 
-        {/* Sort */}
         <select
           className="sort-button"
+          aria-label="Sort products"
           value={sortValue}
-          onChange={(e) =>
-            onSortChange(
-              e.target.value
-            )
+          onChange={(event) =>
+            onSortChange(event.target.value)
           }
         >
-          <option value="relevance">
-            Relevance
-          </option>
-
+          <option value="relevance">Relevance</option>
           <option value="price-low">
             Price: Low to High
           </option>
-
           <option value="price-high">
             Price: High to Low
           </option>
-
           <option value="rating">
             Customer Rating
           </option>
-
-          <option value="name">
-            Name: A to Z
-          </option>
-
-          <option value="newest">
-            Newest
-          </option>
+          <option value="name">Name: A to Z</option>
+          <option value="newest">Newest</option>
         </select>
-
       </div>
     </div>
   );
