@@ -40,7 +40,7 @@ DEBUG = os.getenv("DEBUG", "False").lower() in {
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    # "adjust-namespace-williams-struct.trycloudflare.com",
+    "brandon-competition-heating-trivia.trycloudflare.com",
 ]
 
 # Optional public storefront tenant ID for multi-organization deployments.
@@ -177,10 +177,11 @@ AUTH_USER_MODEL = "accounts.User"
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
-    "https://improve-cheque-clip-isolation.trycloudflare.com",
+     "https://motherboard-given-mins-electron.trycloudflare.com",
 ]
 CSRF_TRUSTED_ORIGINS = [
-    "https://improve-cheque-clip-isolation.trycloudflare.com",
+     "https://motherboard-given-mins-electron.trycloudflare.com",
+    
 ]
 # Private storefront profile images are served only through authenticated API views.
 MEDIA_ROOT = BASE_DIR / "media"
