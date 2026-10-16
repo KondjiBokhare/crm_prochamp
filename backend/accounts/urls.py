@@ -1,40 +1,50 @@
 from django.urls import path
 
-from rest_framework_simplejwt.views import TokenRefreshView
-
 from .views import (
-    RegisterView,
+    AuditedTokenObtainPairView,
     MeView,
     OrganizationCreateView,
-    StorefrontCustomerRegisterView,
-    AuditedTokenObtainPairView,
+    RegisterView,
+    StaffUserDetailView,
+    StaffUserListCreateView,
+    custom_login,
+    custom_logout,
+    custom_refresh,
 )
 
 urlpatterns = [
-    path("storefront-register/", StorefrontCustomerRegisterView.as_view(), name="storefront-customer-register"),
+    # Public registration
     path("register/", RegisterView.as_view(), name="register"),
 
+    # Authentication: choose the login system already used by React.
+    path("login/", custom_login, name="custom-login"),
+    path("refresh/", custom_refresh, name="custom-refresh"),
+    path("logout/", custom_logout, name="custom-logout"),
+
+    # Optional Simple JWT login; keep only if your project uses it.
     path(
-        "login/",
+        "jwt/login/",
         AuditedTokenObtainPairView.as_view(),
-        name="token_obtain_pair"
+        name="jwt-login",
     ),
 
+    # Authenticated profile
+    path("me/", MeView.as_view(), name="me"),
+
+    # Admin-only management
     path(
-        "refresh/",
-        TokenRefreshView.as_view(),
-        name="token_refresh"
+        "staff/",
+        StaffUserListCreateView.as_view(),
+        name="staff-list-create",
     ),
-
     path(
-        "me/",
-        MeView.as_view(),
-        name="me"
+        "staff/<int:pk>/",
+        StaffUserDetailView.as_view(),
+        name="staff-detail",
     ),
-
     path(
         "organizations/",
         OrganizationCreateView.as_view(),
-        name="organization_create"
+        name="organization-create",
     ),
 ]

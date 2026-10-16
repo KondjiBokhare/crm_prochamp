@@ -20,6 +20,39 @@ from .models import (
     HomepagePromotionSettings,
 )
 
+from .models import StockMovement as _StockMovement, DiscountCoupon as _DiscountCoupon
+
+def get_user_organization_id(context):
+    request = context.get("request")
+    user = getattr(request, "user", None)
+
+    if not user or not user.is_authenticated:
+        return None
+
+    return getattr(user, "organization_id", None)
+
+
+class OrganizationScopedPrimaryKeyRelatedField(
+    serializers.PrimaryKeyRelatedField
+):
+    """
+    Restricts related-object selections to the current user's organization.
+
+    Use only for related models that have an organization_id field.
+    """
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        if queryset is None:
+            return None
+
+        organization_id = get_user_organization_id(self.context)
+
+        if organization_id is None:
+            return queryset.none()
+
+        return queryset.filter(organization_id=organization_id)
 class CustomerSerializer(serializers.ModelSerializer):
 
     # Storefront data lives in StorefrontCustomerProfile / StorefrontAddress,
@@ -108,6 +141,10 @@ class InteractionSerializer(serializers.ModelSerializer):
 
     customer_name = serializers.SerializerMethodField()
 
+    customer = OrganizationScopedPrimaryKeyRelatedField(
+        queryset=Customer.objects.all()
+    )
+
     created_by_email = serializers.EmailField(
         source="created_by.email",
         read_only=True
@@ -150,6 +187,10 @@ class OrderSerializer(serializers.ModelSerializer):
     customer_email = serializers.EmailField(source="customer.email", read_only=True)
     customer_phone = serializers.CharField(source="customer.phone", read_only=True)
 
+    customer = OrganizationScopedPrimaryKeyRelatedField(
+        queryset=Customer.objects.all()
+    )
+
     class Meta:
         model = Order
 
@@ -190,22 +231,11 @@ class SegmentSerializer(serializers.ModelSerializer):
         source="created_by.email",
         read_only=True
     )
-
-    # {
-    #     "match": "all",
-    #     "conditions": [
-    #         {
-    #         "field": "lifecycle_stage",
-    #         "operator": "equals",
-    #         "value": "REPEAT"
-    #         },
-    #         {
-    #         "field": "is_active",
-    #         "operator": "equals",
-    #         "value": true
-    #         }
-    #     ]
-    #     }
+    customers = OrganizationScopedPrimaryKeyRelatedField(
+        queryset=Customer.objects.all(),
+        many=True,
+        required=False,
+    )
 
     class Meta:
         model = Segment
@@ -299,6 +329,12 @@ class SegmentSerializer(serializers.ModelSerializer):
 
 class CampaignSerializer(serializers.ModelSerializer):
 
+    segment = OrganizationScopedPrimaryKeyRelatedField(
+        queryset=Segment.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
     segment_name = serializers.CharField(
         source="segment.name",
         read_only=True
@@ -349,11 +385,22 @@ class CampaignSerializer(serializers.ModelSerializer):
         ]
 
     def get_customer_count(self, obj):
+        if not obj.segment_id:
+            return 0
+
         return obj.segment.customers.count()
 
 class CampaignResponseSerializer(serializers.ModelSerializer):
 
     customer_name = serializers.SerializerMethodField()
+
+    campaign = OrganizationScopedPrimaryKeyRelatedField(
+        queryset=Campaign.objects.all()
+    )
+
+    customer = OrganizationScopedPrimaryKeyRelatedField(
+        queryset=Customer.objects.all()
+    )
 
     campaign_name = serializers.CharField(
         source="campaign.name",
@@ -386,6 +433,27 @@ class CampaignResponseSerializer(serializers.ModelSerializer):
             "updated_at",
             "response_date",
         ]
+
+    def validate(self, attrs):
+        campaign = attrs.get(
+            "campaign",
+            getattr(self.instance, "campaign", None),
+        )
+        customer = attrs.get(
+            "customer",
+            getattr(self.instance, "customer", None),
+        )
+
+        if (
+            campaign
+            and customer
+            and campaign.organization_id != customer.organization_id
+        ):
+            raise serializers.ValidationError(
+                "Campaign and customer must belong to the same organization."
+            )
+
+        return attrs
 
     def get_customer_name(self, obj):
         return str(obj.customer)
@@ -426,29 +494,7 @@ class AuditLogSerializer(serializers.ModelSerializer):
         read_only=True,
         default=None,
     )
-
-    class Meta:
-        model = AuditLog
-        fields = [
-            "id",
-            "user",
-            "user_email",
-            "action",
-            "entity_type",
-            "entity_id",
-            "description",
-            "ip_address",
-            "created_at",
-        ]
-        read_only_fields = fields
-
-class AuditLogSerializer(serializers.ModelSerializer):
-    user_email = serializers.EmailField(
-        source="user.email",
-        read_only=True,
-        default=None,
-    )
-
+    
     class Meta:
         model = AuditLog
         fields = [
@@ -481,25 +527,60 @@ class CategorySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "createdAt", "updatedAt"]
 
     def validate_name(self, value):
-        name = " ".join(str(value or "").split())
+        name = value.strip()
+
         if not name:
-            raise serializers.ValidationError("Category name is required.")
-        if len(name) > 60:
-            raise serializers.ValidationError("Category name must be 60 characters or fewer.")
+            raise serializers.ValidationError(
+                "Category name cannot be empty."
+            )
+
         request = self.context.get("request")
-        organization = getattr(getattr(request, "user", None), "organization", None)
-        if organization:
-            duplicate = Category.objects.filter(organization=organization, name__iexact=name)
-            if self.instance:
-                duplicate = duplicate.exclude(pk=self.instance.pk)
-            if duplicate.exists():
-                raise serializers.ValidationError("A category with this name already exists in this organization.")
+        user = getattr(request, "user", None)
+        organization_id = getattr(user, "organization_id", None)
+
+        if not organization_id:
+            raise serializers.ValidationError(
+                "You must belong to an organization to manage categories."
+            )
+
+        queryset = Category.objects.filter(
+            organization_id=organization_id,
+            name__iexact=name,
+        )
+
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.exists():
+            raise serializers.ValidationError(
+                "A category with this name already exists."
+            )
+
         return name
 
+    def create(self, validated_data):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        organization_id = getattr(user, "organization_id", None)
+
+        if not organization_id:
+            raise serializers.ValidationError(
+                "An organization is required."
+            )
+
+        validated_data["organization_id"] = organization_id
+        return super().create(validated_data)
+
+
+    def update(self, instance, validated_data):
+        validated_data.pop("organization", None)
+        validated_data.pop("organization_id", None)
+
+        return super().update(instance, validated_data)
 
 class ProductSerializer(serializers.ModelSerializer):
     category = serializers.CharField(source="category.name", read_only=True)
-    category_name = serializers.CharField(write_only=True, required=False, allow_blank=False)
+    category_name = serializers.CharField(write_only=True, required=True, allow_blank=False)
     shortDescription = serializers.CharField(source="short_description", required=False, allow_blank=True)
     createdAt = serializers.DateTimeField(source="created_at", read_only=True)
     updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
@@ -518,64 +599,97 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def validate_category_name(self, value):
         request = self.context.get("request")
-        organization = getattr(getattr(request, "user", None), "organization", None)
-        if not organization:
-            raise serializers.ValidationError("Your staff account must be linked to an organization.")
-        category = Category.objects.filter(organization=organization, name__iexact=value.strip()).first()
-        if not category:
-            raise serializers.ValidationError("Choose a category that exists in CRM → Categories.")
-        requested_status = self.initial_data.get("status", getattr(self.instance, "status", "Draft"))
-        if not category.is_active and requested_status == "Active":
-            existing_category_id = getattr(self.instance, "category_id", None)
-            if existing_category_id != category.id:
-                raise serializers.ValidationError("This category is inactive. Activate it before publishing new products.")
+        user = getattr(request, "user", None)
+        organization_id = getattr(user, "organization_id", None)
+
+        if not organization_id:
+            raise serializers.ValidationError(
+                "You must belong to an organization to manage products."
+            )
+
+        name = value.strip()
+
+        if not name:
+            raise serializers.ValidationError(
+                "Category name is required."
+            )
+
+        try:
+            category = Category.objects.get(
+                organization_id=organization_id,
+                name__iexact=name,
+            )
+        except Category.DoesNotExist:
+            raise serializers.ValidationError(
+                "Category does not exist in your organization."
+            )
+
+        # Keep the field value a string, as declared by CharField.
+        return category.name
+
+
+    def _get_category(self, category_name):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        organization_id = getattr(user, "organization_id", None)
+
+        if not organization_id:
+            raise serializers.ValidationError(
+                "An organization is required."
+            )
+
+        try:
+            category = Category.objects.get(
+                organization_id=organization_id,
+                name__iexact=category_name,
+            )
+        except Category.DoesNotExist:
+            raise serializers.ValidationError({
+                "category_name": (
+                    "Category does not exist in your organization."
+                )
+            })
+
         return category
 
-    def validate_sku(self, value):
-        sku = str(value or "").strip().upper()
-        if not sku:
-            raise serializers.ValidationError("SKU is required.")
-        request = self.context.get("request")
-        organization = getattr(getattr(request, "user", None), "organization", None)
-        if organization:
-            duplicate = Product.objects.filter(organization=organization, sku__iexact=sku)
-            if self.instance:
-                duplicate = duplicate.exclude(pk=self.instance.pk)
-            if duplicate.exists():
-                raise serializers.ValidationError("A product with this SKU already exists.")
-        return sku
-
-    def validate(self, attrs):
-        price = attrs.get("price", getattr(self.instance, "price", None))
-        mrp = attrs.get("mrp", getattr(self.instance, "mrp", None))
-        if price is None or price <= 0:
-            raise serializers.ValidationError({"price": "Price must be greater than zero."})
-        if mrp is not None and mrp < price:
-            raise serializers.ValidationError({"mrp": "MRP must be greater than or equal to the selling price."})
-        images = attrs.get("images", getattr(self.instance, "images", []))
-        if images is None:
-            images = []
-        if not isinstance(images, list) or len(images) > 5:
-            raise serializers.ValidationError({"images": "A product can have up to 5 images."})
-        for item in images:
-            if not isinstance(item, str) or len(item) > 2_500_000:
-                raise serializers.ValidationError({"images": "Each image must be a valid URL or a compact image data URL."})
-        attrs["images"] = images
-        return attrs
 
     def create(self, validated_data):
-        category = validated_data.pop("category_name", None)
-        if not category:
-            raise serializers.ValidationError({"category_name": "Choose a product category."})
-        request = self.context["request"]
-        validated_data["organization"] = request.user.organization
+        category_name = validated_data.pop("category_name", None)
+
+        if not category_name:
+            raise serializers.ValidationError({
+                "category_name": "Category name is required."
+            })
+
+        category = self._get_category(category_name)
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        organization_id = getattr(user, "organization_id", None)
+
+        if not organization_id:
+            raise serializers.ValidationError({
+                "organization": "An organization is required."
+            })
+
         validated_data["category"] = category
+        validated_data["organization_id"] = organization_id
+
         return super().create(validated_data)
 
+
     def update(self, instance, validated_data):
-        category = validated_data.pop("category_name", None)
-        if category is not None:
-            validated_data["category"] = category
+        category_name = validated_data.pop("category_name", None)
+
+        if category_name is not None:
+            validated_data["category"] = self._get_category(
+                category_name
+            )
+
+        # Do not allow clients to move products between organizations.
+        validated_data.pop("organization", None)
+        validated_data.pop("organization_id", None)
+
         return super().update(instance, validated_data)
 
     def get_image(self, obj):
@@ -608,7 +722,7 @@ class SupportTicketSerializer(serializers.ModelSerializer):
     statusHistory = serializers.JSONField(source="status_history", read_only=True)
     createdAt = serializers.DateTimeField(source="created_at", read_only=True)
     updatedAt = serializers.DateTimeField(source="updated_at", read_only=True)
-    messages = SupportTicketMessageSerializer(many=True, read_only=True)
+    messages = serializers.SerializerMethodField()
     internalNotes = serializers.SerializerMethodField()
 
     class Meta:
@@ -632,9 +746,57 @@ class SupportTicketSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Description must be between 10 and 2,000 characters.")
         return value
 
+    def get_messages(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        can_view_internal = bool(
+            user
+            and user.is_authenticated
+            and (
+                user.is_staff
+                or getattr(user, "role", None) in {"ADMIN", "SUPPORT"}
+            )
+        )
+
+        queryset = obj.messages.all().order_by("created_at")
+
+        if not can_view_internal:
+            queryset = queryset.filter(is_internal=False)
+
+        return SupportTicketMessageSerializer(
+            queryset,
+            many=True,
+            context=self.context,
+        ).data
+
     def get_internalNotes(self, obj):
-        notes = obj.messages.filter(is_internal=True).order_by("created_at")
-        return SupportTicketMessageSerializer(notes, many=True).data
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if not user or not user.is_authenticated:
+            return []
+
+        role = getattr(user, "role", None)
+
+        # Adjust these role names if your project uses different choices.
+        can_view_internal_notes = (
+            user.is_staff
+            or role in {"ADMIN", "SUPPORT"}
+        )
+
+        if not can_view_internal_notes:
+            return []
+
+        messages = obj.messages.filter(
+            is_internal=True
+        ).order_by("created_at")
+
+        return SupportTicketMessageSerializer(
+            messages,
+            many=True,
+            context=self.context,
+        ).data
 
 
 # ---------------------------------------------------------------------------
@@ -805,18 +967,37 @@ class CommunicationTemplateSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "channel", "subject", "body", "category", "status", "createdAt", "updatedAt"]
         read_only_fields = ["id", "createdAt", "updatedAt"]
 
+   
     def validate_name(self, value):
         name = value.strip()
-        organization = self.context.get("organization")
-        queryset = CommunicationTemplate.objects.filter(name__iexact=name)
-        if organization:
-            queryset = queryset.filter(organization=organization)
-        if self.instance:
+
+        if not name:
+            raise serializers.ValidationError(
+                "Template name cannot be empty."
+            )
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        organization_id = getattr(user, "organization_id", None)
+
+        if organization_id is None:
+            raise serializers.ValidationError(
+                "An organization is required."
+            )
+
+        queryset = CommunicationTemplate.objects.filter(
+            organization_id=organization_id,
+            name__iexact=name,
+        )
+
+        if self.instance is not None:
             queryset = queryset.exclude(pk=self.instance.pk)
+
         if queryset.exists():
-            raise serializers.ValidationError("A template with this name already exists.")
-        if len(name) < 3:
-            raise serializers.ValidationError("Template name must be at least 3 characters.")
+            raise serializers.ValidationError(
+                "A template with this name already exists."
+            )
+
         return name
 
     def validate_body(self, value):
@@ -954,13 +1135,13 @@ class CustomerBehaviorEventInputSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 # Phase 25 — public cart/wishlist inputs and product review serializers
 # ---------------------------------------------------------------------------
-import re as _phase25_re
+import re as re
 from .models import StorefrontCart, StorefrontCartItem, StorefrontWishlistItem, ProductReview
 
 
 def _validate_phase25_visitor_id(value):
     value = str(value or "").strip()
-    if not _phase25_re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value):
         raise serializers.ValidationError("Use the pseudonymous visitor ID generated by this browser.")
     return value
 
@@ -1055,16 +1236,14 @@ class CRMProductReviewSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 # Phase 26 — inventory movement and discount coupon serializers
 # ---------------------------------------------------------------------------
-from .models import StockMovement as _Phase26StockMovement, DiscountCoupon as _Phase26DiscountCoupon
 
-
-class Phase26StockMovementSerializer(serializers.ModelSerializer):
+class StockMovementSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
     sku = serializers.CharField(source="product.sku", read_only=True)
     actor_email = serializers.CharField(source="actor.email", read_only=True, default="", allow_null=True)
 
     class Meta:
-        model = _Phase26StockMovement
+        model = _StockMovement
         fields = [
             "id", "product", "product_name", "sku", "actor", "actor_email",
             "movement_type", "quantity_delta", "stock_before", "stock_after",
@@ -1073,11 +1252,11 @@ class Phase26StockMovementSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class Phase26InventoryAdjustmentSerializer(serializers.Serializer):
+class InventoryAdjustmentSerializer(serializers.Serializer):
     product_id = serializers.IntegerField(min_value=1)
     direction = serializers.ChoiceField(choices=[("ADD", "Add stock"), ("REMOVE", "Remove stock"), ("SET", "Set exact stock")])
     quantity = serializers.IntegerField(min_value=0, max_value=1_000_000)
-    movement_type = serializers.ChoiceField(choices=_Phase26StockMovement.MovementType.choices, default=_Phase26StockMovement.MovementType.ADJUSTMENT)
+    movement_type = serializers.ChoiceField(choices=_StockMovement.MovementType.choices, default=_StockMovement.MovementType.ADJUSTMENT)
     reason = serializers.CharField(max_length=500, allow_blank=True, required=False, default="")
 
     def validate(self, attrs):
@@ -1086,11 +1265,11 @@ class Phase26InventoryAdjustmentSerializer(serializers.Serializer):
         return attrs
 
 
-class Phase26DiscountCouponSerializer(serializers.ModelSerializer):
+class DiscountCouponSerializer(serializers.ModelSerializer):
     created_by_email = serializers.CharField(source="created_by.email", read_only=True, default="", allow_null=True)
 
     class Meta:
-        model = _Phase26DiscountCoupon
+        model = _DiscountCoupon
         fields = [
             "id", "code", "name", "discount_type", "value", "min_order_value",
             "max_discount", "starts_at", "ends_at", "usage_limit", "used_count",
@@ -1099,17 +1278,39 @@ class Phase26DiscountCouponSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "used_count", "created_by", "created_by_email", "created_at", "updated_at"]
 
     def validate_code(self, value):
-        import re
-        code = str(value or "").strip().upper()
-        if not re.fullmatch(r"[A-Z0-9_-]{3,32}", code):
-            raise serializers.ValidationError("Use 3–32 letters, numbers, hyphens or underscores; spaces are not allowed.")
-        organization = self.context.get("organization") or getattr(self.instance, "organization", None)
-        if organization is not None:
-            duplicate = _Phase26DiscountCoupon.objects.filter(organization=organization, code=code)
-            if self.instance is not None:
-                duplicate = duplicate.exclude(pk=self.instance.pk)
-            if duplicate.exists():
-                raise serializers.ValidationError("A coupon with this code already exists in this organization.")
+        code = value.strip().upper()
+
+        if not code:
+            raise serializers.ValidationError(
+                "Coupon code is required."
+            )
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        organization_id = (
+            getattr(user, "organization_id", None)
+            or getattr(self.instance, "organization_id", None)
+        )
+
+        if organization_id is None:
+            raise serializers.ValidationError(
+                "An organization is required."
+            )
+
+        queryset = _DiscountCoupon.objects.filter(
+            organization_id=organization_id,
+            code__iexact=code,
+        )
+
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.exists():
+            raise serializers.ValidationError(
+                "A coupon with this code already exists."
+            )
+
         return code
 
     def validate(self, attrs):
@@ -1121,7 +1322,7 @@ class Phase26DiscountCouponSerializer(serializers.ModelSerializer):
         ends_at = attrs.get("ends_at", getattr(self.instance, "ends_at", None))
         if value is not None and value <= 0:
             raise serializers.ValidationError({"value": "Discount value must be greater than zero."})
-        if discount_type == _Phase26DiscountCoupon.DiscountType.PERCENT and value is not None and value > 100:
+        if discount_type == _DiscountCoupon.DiscountType.PERCENT and value is not None and value > 100:
             raise serializers.ValidationError({"value": "A percentage discount cannot exceed 100%."})
         if min_order_value is not None and min_order_value < 0:
             raise serializers.ValidationError({"min_order_value": "Minimum order value cannot be negative."})
@@ -1140,6 +1341,9 @@ class OrderShipmentSerializer(serializers.ModelSerializer):
     order_number = serializers.CharField(source="order.order_number", read_only=True)
     customer_name = serializers.SerializerMethodField()
     created_by_email = serializers.EmailField(source="created_by.email", read_only=True, allow_null=True)
+    order = OrganizationScopedPrimaryKeyRelatedField(
+        queryset=Order.objects.all()
+    )
 
     class Meta:
         model = OrderShipment
@@ -1171,10 +1375,14 @@ class OrderShipmentSerializer(serializers.ModelSerializer):
 
 
 class OrderReturnRequestSerializer(serializers.ModelSerializer):
+    order = OrganizationScopedPrimaryKeyRelatedField(
+        queryset=Order.objects.all()
+    )
     order_number = serializers.CharField(source="order.order_number", read_only=True)
     customer_name = serializers.SerializerMethodField()
     requested_by_email = serializers.EmailField(source="requested_by.email", read_only=True, allow_null=True)
     reviewed_by_email = serializers.EmailField(source="reviewed_by.email", read_only=True, allow_null=True)
+   
 
     class Meta:
         model = OrderReturnRequest
@@ -1186,6 +1394,9 @@ class OrderReturnRequestSerializer(serializers.ModelSerializer):
 
 
 class OrderActivityEventSerializer(serializers.ModelSerializer):
+    order = OrganizationScopedPrimaryKeyRelatedField(
+        queryset=Order.objects.all()
+    )
     order_number = serializers.CharField(source="order.order_number", read_only=True)
     actor_email = serializers.EmailField(source="created_by.email", read_only=True, allow_null=True)
 

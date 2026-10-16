@@ -1,14 +1,29 @@
+# ============================================================
+# Django admin imports
+# ============================================================
+
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import User, Organization
 
+# ============================================================
+# Local model imports
+# ============================================================
+
+from .models import Organization, User
+
+
+# ============================================================
+# Custom User Admin
+# ============================================================
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
+    """Configure user management in the Django admin panel."""
 
     model = User
 
+    # User list page
     list_display = (
         "email",
         "role",
@@ -34,64 +49,85 @@ class CustomUserAdmin(UserAdmin):
 
     ordering = ("email",)
 
+    # Existing user detail/edit page
     fieldsets = (
-        (None, {
-            "fields": (
-                "email",
-                "password",
-            )
-        }),
-
-        ("Personal Information", {
-            "fields": (
-                "first_name",
-                "last_name",
-            )
-        }),
-
-        ("CRM Access", {
-            "fields": (
-                "role",
-                "organization",
-            )
-        }),
-
-        ("Permissions", {
-            "fields": (
-                "is_active",
-                "is_staff",
-                "is_superuser",
-                "groups",
-                "user_permissions",
-            )
-        }),
-
-        ("Important Dates", {
-            "fields": (
-                "last_login",
-                "date_joined",
-            )
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "email",
+                    "password",
+                ),
+            },
+        ),
+        (
+            "Personal Information",
+            {
+                "fields": (
+                    "first_name",
+                    "last_name",
+                ),
+            },
+        ),
+        (
+            "CRM Access",
+            {
+                "fields": (
+                    "role",
+                    "organization",
+                ),
+            },
+        ),
+        (
+            "Permissions",
+            {
+                "fields": (
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                    "groups",
+                    "user_permissions",
+                ),
+            },
+        ),
+        (
+            "Important Dates",
+            {
+                "fields": (
+                    "last_login",
+                    "date_joined",
+                ),
+            },
+        ),
     )
 
+    # New user creation page
     add_fieldsets = (
-        (None, {
-            "classes": ("wide",),
-            "fields": (
-                "email",
-                "password1",
-                "password2",
-                "role",
-                "organization",
-                "is_staff",
-                "is_active",
-            ),
-        }),
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": (
+                    "email",
+                    "password1",
+                    "password2",
+                    "role",
+                    "organization",
+                    "is_staff",
+                    "is_active",
+                ),
+            },
+        ),
     )
 
+
+# ============================================================
+# Organization Admin
+# ============================================================
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
+    """Configure organization management in the admin panel."""
 
     list_display = (
         "name",
@@ -100,3 +136,8 @@ class OrganizationAdmin(admin.ModelAdmin):
     )
 
     search_fields = ("name",)
+    ordering = ("name",)
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )

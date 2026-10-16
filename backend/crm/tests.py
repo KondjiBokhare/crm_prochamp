@@ -4,7 +4,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
-from rest_framework_simplejwt.tokens import RefreshToken
+from accounts.token_service import create_access_token
 
 from accounts.models import User, Organization
 from crm.models import Customer, AuditLog
@@ -67,9 +67,10 @@ class AuditLogAPITests(APITestCase):
         self.audit_url = "/api/crm/audit-logs/"
 
     def authenticate(self, user):
-        token = RefreshToken.for_user(user).access_token
+        access_token = create_access_token(user)
+
         self.client.credentials(
-            HTTP_AUTHORIZATION=f"Bearer {token}"
+            HTTP_AUTHORIZATION=f"Bearer {access_token}"
         )
 
     def response_items(self, response):
@@ -173,7 +174,7 @@ class AuditLogAPITests(APITestCase):
         )
 
     def test_audit_endpoint_is_read_only(self):
-        self.authenticate(self.admin_a)
+        self.client.force_authenticate(user=self.admin_a)
 
         payload = {
             "action": "CREATE",

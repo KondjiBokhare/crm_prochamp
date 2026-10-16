@@ -19,6 +19,7 @@ from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 from rest_framework.exceptions import ValidationError
 from django.utils import timezone
+from accounts import serializers
 
 from .models import (
     Customer,
@@ -31,6 +32,7 @@ from .models import (
 
 from .serializers import (
     CustomerSerializer,
+    DiscountCouponSerializer,
     InteractionSerializer,
     OrderSerializer,
     SegmentSerializer,
@@ -345,41 +347,33 @@ class OrderListCreateView(generics.ListCreateAPIView):
             "customer"
         )
 
+        
     def perform_create(self, serializer):
-
         user = self.request.user
 
-        if not user.organization:
-            raise PermissionDenied(
-                "User is not assigned to an organization."
-            )
+        if not user.organization_id:
+            raise serializers.ValidationError({
+                "organization": "Your account is not assigned to an organization."
+            })
 
-        customer_id = self.request.data.get("customer")
+        customer = serializer.validated_data.get("customer")
 
-        try:
-            customer = Customer.objects.get(
-                id=customer_id,
-                organization=user.organization
-            )
-        except Customer.DoesNotExist:
-            raise PermissionDenied(
-                "Customer does not belong to your organization."
-            )
-
-        serializer.save(
-            customer=customer,
-            organization=user.organization
-        )
+        # Ensure the customer belongs to the same organization.
+        if customer and customer.organization_id != user.organization_id:
+            raise serializers.ValidationError({
+                "customer": "The customer must belong to your organization."
+            })
 
         order = serializer.save(
-            organization=self.request.user.organization
+            customer=customer,
+            organization=user.organization,
         )
 
         update_customer_lifecycle(order.customer)
 
         create_audit_log(
             organization=order.organization,
-            user=self.request.user,
+            user=user,
             action="CREATE",
             entity_type="Order",
             entity_id=order.id,
@@ -955,7 +949,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
         organization = _require_organization(self.request)
         product = serializer.save(organization=organization)
         if product.stock > 0:
-            _Phase26StockMovement.objects.create(
+            _StockMovement.objects.create(
                 organization=organization, product=product, actor=self.request.user,
                 movement_type="RESTOCK", quantity_delta=product.stock,
                 stock_before=0, stock_after=product.stock,
@@ -976,7 +970,7 @@ class ProductDetailView(generics.RetrieveUpdateAPIView):
         previous_stock = serializer.instance.stock
         product = serializer.save()
         if previous_stock != product.stock:
-            _Phase26StockMovement.objects.create(
+            _StockMovement.objects.create(
                 organization=product.organization, product=product, actor=self.request.user,
                 movement_type="COUNT_CORRECTION", quantity_delta=product.stock - previous_stock,
                 stock_before=previous_stock, stock_after=product.stock,
@@ -2218,25 +2212,25 @@ class CRMProductReviewStatusView(APIView):
 # ---------------------------------------------------------------------------
 # Phase 26 — inventory movements, discount coupons, and abandoned cart reporting
 # ---------------------------------------------------------------------------
-from datetime import timedelta as _Phase26Timedelta
-from decimal import Decimal as _Phase26Decimal, ROUND_HALF_UP as _Phase26ROUND_HALF_UP
-from django.db import transaction as _Phase26Transaction
-from django.db.models import Q as _Phase26Q
-from rest_framework.permissions import AllowAny as _Phase26AllowAny
+from datetime import timedelta as _Timedelta
+from decimal import Decimal as _Decimal, ROUND_HALF_UP as _ROUND_HALF_UP
+from django.db import transaction as _Transaction
+from django.db.models import Q as _Q
+from rest_framework.permissions import AllowAny as _AllowAny
 from .models import (
-    StockMovement as _Phase26StockMovement,
-    DiscountCoupon as _Phase26DiscountCoupon,
-    StorefrontCart as _Phase26StorefrontCart,
+    StockMovement as _StockMovement,
+    DiscountCoupon as _DiscountCoupon,
+    StorefrontCart as _StorefrontCart,
 )
 from .serializers import (
-    Phase26StockMovementSerializer as _Phase26StockMovementSerializer,
-    Phase26InventoryAdjustmentSerializer as _Phase26InventoryAdjustmentSerializer,
-    Phase26DiscountCouponSerializer as _Phase26DiscountCouponSerializer,
+    StockMovementSerializer as _StockMovementSerializer,
+    InventoryAdjustmentSerializer as _InventoryAdjustmentSerializer,
+    DiscountCouponSerializer as _DiscountCouponSerializer,
 )
-from accounts.permissions import IsMarketingOrAdmin as _Phase26IsMarketingOrAdmin
+from accounts.permissions import IsMarketingOrAdmin as _IsMarketingOrAdmin
 
 
-class _Phase26IsInventoryStaffAllowed(IsAuthenticated):
+class _IsInventoryStaffAllowed(IsAuthenticated):
     """Allow stock writes to Admin, Sales/CRM Manager, and Operations roles."""
     def has_permission(self, request, view):
         user = request.user
@@ -2247,12 +2241,12 @@ class _Phase26IsInventoryStaffAllowed(IsAuthenticated):
         return bool(user.is_superuser or user.role in {"ADMIN", "SALES", "OPERATIONS"})
 
 
-class Phase26InventoryMovementsView(APIView):
-    permission_classes = [_Phase26IsInventoryStaffAllowed]
+class InventoryMovementsView(APIView):
+    permission_classes = [_IsInventoryStaffAllowed]
 
     def get(self, request):
         organization = _require_organization(request)
-        queryset = _Phase26StockMovement.objects.filter(organization=organization).select_related("product", "actor")
+        queryset = _StockMovement.objects.filter(organization=organization).select_related("product", "actor")
         product_id = request.query_params.get("product_id")
         movement_type = request.query_params.get("movement_type")
         search = request.query_params.get("search", "").strip()
@@ -2262,19 +2256,19 @@ class Phase26InventoryMovementsView(APIView):
             queryset = queryset.filter(movement_type=movement_type)
         if search:
             queryset = queryset.filter(
-                _Phase26Q(product__name__icontains=search)
-                | _Phase26Q(product__sku__icontains=search)
-                | _Phase26Q(reason__icontains=search)
-                | _Phase26Q(actor__email__icontains=search)
+                _Q(product__name__icontains=search)
+                | _Q(product__sku__icontains=search)
+                |   _Q(reason__icontains=search)
+                | _Q(actor__email__icontains=search)
             )
-        return Response(_Phase26StockMovementSerializer(queryset[:300], many=True).data)
+        return Response(_StockMovementSerializer(queryset[:300], many=True).data)
 
     def post(self, request):
         organization = _require_organization(request)
-        payload = _Phase26InventoryAdjustmentSerializer(data=request.data)
+        payload = _InventoryAdjustmentSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
-        with _Phase26Transaction.atomic():
+        with _Transaction.atomic():
             product = get_object_or_404(
                 Product.objects.select_for_update().filter(organization=organization),
                 pk=data["product_id"],
@@ -2304,7 +2298,7 @@ class Phase26InventoryMovementsView(APIView):
                 raise ValidationError({"movement_type": "Stock count corrections must set the exact stock quantity."})
             product.stock = after
             product.save(update_fields=["stock", "updated_at"])
-            movement = _Phase26StockMovement.objects.create(
+            movement = _StockMovement.objects.create(
                 organization=organization,
                 product=product,
                 actor=request.user,
@@ -2315,45 +2309,45 @@ class Phase26InventoryMovementsView(APIView):
                 reason=data["reason"].strip(),
             )
         _record_api_audit(request, "UPDATE", "Inventory", movement.id, f"Stock changed for {product.sku}: {before} → {after}.")
-        return Response(_Phase26StockMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
+        return Response(_StockMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
 
 
-class Phase26DiscountCouponListCreateView(APIView):
-    permission_classes = [IsAuthenticated, _Phase26IsMarketingOrAdmin]
+class  DiscountCouponListCreateView(APIView):
+    permission_classes = [IsAuthenticated, _IsMarketingOrAdmin]
 
     def get(self, request):
         organization = _require_organization(request)
-        queryset = _Phase26DiscountCoupon.objects.filter(organization=organization)
+        queryset = _DiscountCoupon.objects.filter(organization=organization)
         active = request.query_params.get("active")
         if active in {"true", "false"}:
             queryset = queryset.filter(is_active=(active == "true"))
         search = request.query_params.get("search", "").strip()
         if search:
-            queryset = queryset.filter(_Phase26Q(code__icontains=search) | _Phase26Q(name__icontains=search))
-        return Response(_Phase26DiscountCouponSerializer(queryset[:300], many=True).data)
+            queryset = queryset.filter(_Q(code__icontains=search) | _Q(name__icontains=search))
+        return Response(_DiscountCouponSerializer(queryset[:300], many=True).data)
 
     def post(self, request):
         organization = _require_organization(request)
-        serializer = _Phase26DiscountCouponSerializer(data=request.data, context={"organization": organization})
+        serializer =    DiscountCouponSerializer(data=request.data, context={"organization": organization})
         serializer.is_valid(raise_exception=True)
         coupon = serializer.save(organization=organization, created_by=request.user, code=serializer.validated_data["code"].upper())
         _record_api_audit(request, "CREATE", "DiscountCoupon", coupon.id, f"Created coupon {coupon.code}.")
-        return Response(_Phase26DiscountCouponSerializer(coupon).data, status=status.HTTP_201_CREATED)
+        return Response(_DiscountCouponSerializer(coupon).data, status=status.HTTP_201_CREATED)
 
 
-class Phase26DiscountCouponDetailView(APIView):
-    permission_classes = [IsAuthenticated, _Phase26IsMarketingOrAdmin]
+class  DiscountCouponDetailView(APIView):
+    permission_classes = [IsAuthenticated, _IsMarketingOrAdmin]
 
     def get_object(self, request, pk):
-        return get_object_or_404(_Phase26DiscountCoupon, pk=pk, organization=_require_organization(request))
+        return get_object_or_404(_DiscountCoupon, pk=pk, organization=_require_organization(request))
 
     def patch(self, request, pk):
         coupon = self.get_object(request, pk)
-        serializer = _Phase26DiscountCouponSerializer(coupon, data=request.data, partial=True, context={"organization": coupon.organization})
+        serializer = _DiscountCouponSerializer(coupon, data=request.data, partial=True, context={"organization": coupon.organization})
         serializer.is_valid(raise_exception=True)
         updated = serializer.save(code=serializer.validated_data.get("code", coupon.code).upper())
         _record_api_audit(request, "UPDATE", "DiscountCoupon", updated.id, f"Updated coupon {updated.code}.")
-        return Response(_Phase26DiscountCouponSerializer(updated).data)
+        return Response(_DiscountCouponSerializer(updated).data)
 
     def delete(self, request, pk):
         coupon = self.get_object(request, pk)
@@ -2363,8 +2357,8 @@ class Phase26DiscountCouponDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class Phase26StorefrontCouponValidationView(APIView):
-    permission_classes = [_Phase26AllowAny]
+class  StorefrontCouponValidationView(APIView):
+    permission_classes = [_AllowAny]
 
     def post(self, request):
         organization_id = _phase25_storefront_org(request)
@@ -2374,7 +2368,7 @@ class Phase26StorefrontCouponValidationView(APIView):
         code = str(request.data.get("code") or "").strip().upper()
         if not code or len(code) > 32:
             return Response({"valid": False, "detail": "Enter a valid coupon code."})
-        coupon = _Phase26DiscountCoupon.objects.filter(organization_id=organization_id, code=code).first()
+        coupon = _DiscountCoupon.objects.filter(organization_id=organization_id, code=code).first()
         if coupon is None:
             return Response({"valid": False, "detail": "This coupon code was not found."})
         now = timezone.now()
@@ -2386,23 +2380,23 @@ class Phase26StorefrontCouponValidationView(APIView):
             return Response({"valid": False, "detail": "This coupon has expired."})
         if coupon.usage_limit is not None and coupon.used_count >= coupon.usage_limit:
             return Response({"valid": False, "detail": "This coupon has reached its usage limit."})
-        cart = _Phase26StorefrontCart.objects.filter(
+        cart = _StorefrontCart.objects.filter(
             organization_id=organization_id, visitor_id=visitor_id
         ).prefetch_related("items__product").first()
         if not cart or not cart.items.exists():
             return Response({"valid": False, "detail": "Add a product to your cart before applying a coupon."})
-        subtotal = sum((_Phase26Decimal(item.product.price) * item.quantity for item in cart.items.all()), _Phase26Decimal("0.00"))
-        subtotal = subtotal.quantize(_Phase26Decimal("0.01"), rounding=_Phase26ROUND_HALF_UP)
+        subtotal = sum((_Decimal(item.product.price) * item.quantity for item in cart.items.all()), Decimal("0.00"))
+        subtotal = subtotal.quantize(_Decimal("0.01"), rounding=_ROUND_HALF_UP)
         if subtotal < coupon.min_order_value:
             return Response({
                 "valid": False,
                 "detail": f"This coupon needs a minimum cart value of ₹{coupon.min_order_value}.",
                 "subtotal": str(subtotal),
             })
-        raw_discount = subtotal * coupon.value / _Phase26Decimal("100") if coupon.discount_type == "PERCENT" else coupon.value
+        raw_discount = subtotal * coupon.value / _Decimal("100") if coupon.discount_type == "PERCENT" else coupon.value
         if coupon.discount_type == "PERCENT" and coupon.max_discount is not None:
             raw_discount = min(raw_discount, coupon.max_discount)
-        discount_amount = min(subtotal, raw_discount).quantize(_Phase26Decimal("0.01"), rounding=_Phase26ROUND_HALF_UP)
+        discount_amount = min(subtotal, raw_discount).quantize(_Decimal("0.01"), rounding=_ROUND_HALF_UP)
         return Response({
             "valid": True,
             "code": coupon.code,
@@ -2411,12 +2405,12 @@ class Phase26StorefrontCouponValidationView(APIView):
             "value": str(coupon.value),
             "discountAmount": str(discount_amount),
             "subtotal": str(subtotal),
-            "payableAfterCoupon": str(max(_Phase26Decimal("0.00"), subtotal - discount_amount).quantize(_Phase26Decimal("0.01"))),
+            "payableAfterCoupon": str(max(_Decimal("0.00"), subtotal - discount_amount).quantize(_Decimal("0.01"))),
             "note": "Preview only. Coupon redemption is not recorded until real API order placement is implemented.",
         })
 
 
-class Phase26AbandonedCartListView(APIView):
+class AbandonedCartListView(APIView):
     permission_classes = [IsAuthenticated, IsCatalogStaffAllowed]
 
     def get(self, request):
@@ -2426,8 +2420,8 @@ class Phase26AbandonedCartListView(APIView):
         except (TypeError, ValueError):
             raise ValidationError({"min_age_hours": "Use a whole number between 1 and 720."})
         min_age_hours = max(1, min(720, min_age_hours))
-        cutoff = timezone.now() - _Phase26Timedelta(hours=min_age_hours)
-        carts = _Phase26StorefrontCart.objects.filter(
+        cutoff = timezone.now() - _Timedelta(hours=min_age_hours)
+        carts = _StorefrontCart.objects.filter(
             organization=organization, updated_at__lt=cutoff, items__isnull=False
         ).distinct().prefetch_related("items__product").order_by("-updated_at")[:250]
         rows = []
@@ -2438,7 +2432,7 @@ class Phase26AbandonedCartListView(APIView):
             if not items:
                 continue
             quantity_count = sum(int(item.quantity) for item in items)
-            subtotal = sum((_Phase26Decimal(item.product.price) * item.quantity for item in items), _Phase26Decimal("0.00"))
+            subtotal = sum((_Decimal(item.product.price) * item.quantity for item in items), _Decimal("0.00"))
             product_names = [item.product.name for item in items]
             searchable = " ".join([cart.visitor_id, *product_names, *(item.product.sku for item in items)]).lower()
             if search and search not in searchable:
@@ -2450,7 +2444,7 @@ class Phase26AbandonedCartListView(APIView):
                 "itemCount": len(items),
                 "quantityCount": quantity_count,
                 "productNames": product_names,
-                "subtotal": str(subtotal.quantize(_Phase26Decimal("0.01"))),
+                "subtotal": str(subtotal.quantize(_Decimal("0.01"))),
                 "updatedAt": cart.updated_at.isoformat(),
                 "ageHours": age_hours,
             })
@@ -2458,17 +2452,17 @@ class Phase26AbandonedCartListView(APIView):
 
 
 # ---------------------------------------------------------------------------
-# Phase 27: organization-scoped order operations (shipments, returns, timeline)
+#  27: organization-scoped order operations (shipments, returns, timeline)
 # ---------------------------------------------------------------------------
-from rest_framework.permissions import BasePermission as _Phase27BasePermission
-from rest_framework.views import APIView as _Phase27APIView
-from rest_framework.response import Response as _Phase27Response
-from rest_framework import status as _Phase27Status
+from rest_framework.permissions import BasePermission as _BasePermission
+from rest_framework.views import APIView as _APIView
+from rest_framework.response import Response as _Response
+from rest_framework import status as _Status
 from .models import OrderShipment, OrderReturnRequest, OrderActivityEvent
 from .serializers import OrderShipmentSerializer, OrderReturnRequestSerializer, OrderActivityEventSerializer
 
 
-class IsOrderOperationsAllowed(_Phase27BasePermission):
+class IsOrderOperationsAllowed(_BasePermission):
     """Operations/Sales/Management can write; authenticated CRM roles can read."""
     read_roles = {"ADMIN", "SALES", "SUPPORT", "MARKETING", "MANAGEMENT", "OPERATIONS"}
     write_roles = {"ADMIN", "SALES", "MANAGEMENT", "OPERATIONS"}
@@ -2484,7 +2478,7 @@ class IsOrderOperationsAllowed(_Phase27BasePermission):
         return user.role in self.write_roles
 
 
-def _record_phase27_order_event(*, order, user, event_type, message, metadata=None):
+def _record_order_event(*, order, user, event_type, message, metadata=None):
     return OrderActivityEvent.objects.create(
         organization=order.organization,
         order=order,
@@ -2523,7 +2517,7 @@ class OrderShipmentListCreateView(generics.ListCreateAPIView):
         if order.status in {Order.OrderStatus.CANCELLED, Order.OrderStatus.REFUNDED}:
             raise ValidationError("Cannot create a shipment for a cancelled or refunded order.")
         shipment = serializer.save(organization=organization, created_by=user, status=OrderShipment.Status.PREPARING)
-        _record_phase27_order_event(order=order, user=user, event_type=OrderActivityEvent.EventType.SHIPMENT,
+        _record_order_event(order=order, user=user, event_type=OrderActivityEvent.EventType.SHIPMENT,
             message=f"Shipment record created: {shipment.carrier}, tracking {shipment.tracking_number}.",
             metadata={"shipment_id": shipment.id, "tracking_number": shipment.tracking_number, "status": shipment.status})
 
@@ -2547,7 +2541,7 @@ class OrderShipmentDetailView(generics.RetrieveUpdateAPIView):
                 shipment.delivered_at = timezone.now()
                 fields.append("delivered_at")
             shipment.save(update_fields=fields)
-            _record_phase27_order_event(order=shipment.order, user=self.request.user, event_type=OrderActivityEvent.EventType.SHIPMENT,
+            _record_order_event(order=shipment.order, user=self.request.user, event_type=OrderActivityEvent.EventType.SHIPMENT,
                 message=f"Shipment {shipment.tracking_number} status changed from {previous} to {shipment.status}.",
                 metadata={"shipment_id": shipment.id, "previous_status": previous, "status": shipment.status})
             order = shipment.order
@@ -2560,7 +2554,7 @@ class OrderShipmentDetailView(generics.RetrieveUpdateAPIView):
                 previous_order_status = order.status
                 order.status = next_order_status
                 order.save(update_fields=["status", "updated_at"])
-                _record_phase27_order_event(order=order, user=self.request.user, event_type=OrderActivityEvent.EventType.STATUS,
+                _record_order_event(order=order, user=self.request.user, event_type=OrderActivityEvent.EventType.STATUS,
                     message=f"Order status changed from {previous_order_status} to {next_order_status} based on shipment tracking.",
                     metadata={"shipment_id": shipment.id, "previous_status": previous_order_status, "status": next_order_status})
 
@@ -2591,12 +2585,12 @@ class OrderReturnRequestListCreateView(generics.ListCreateAPIView):
         if order.organization_id != organization.id:
             raise PermissionDenied("Order does not belong to your organization.")
         return_request = serializer.save(organization=organization, requested_by=user)
-        _record_phase27_order_event(order=order, user=user, event_type=OrderActivityEvent.EventType.RETURN,
+        _record_order_event(order=order, user=user, event_type=OrderActivityEvent.EventType.RETURN,
             message=f"Return request #{return_request.id} recorded: {return_request.get_reason_display()}.",
             metadata={"return_request_id": return_request.id, "status": return_request.status, "reason": return_request.reason})
 
 
-class OrderReturnRequestStatusView(_Phase27APIView):
+class OrderReturnRequestStatusView(_APIView):
     permission_classes = [IsAuthenticated, IsOrderOperationsAllowed]
     transitions = {
         "REQUESTED": {"APPROVED", "REJECTED"},
@@ -2611,14 +2605,14 @@ class OrderReturnRequestStatusView(_Phase27APIView):
         try:
             item = OrderReturnRequest.objects.select_related("order").get(pk=pk, organization=request.user.organization)
         except OrderReturnRequest.DoesNotExist:
-            return _Phase27Response({"detail": "Return request not found."}, status=_Phase27Status.HTTP_404_NOT_FOUND)
+            return _Response({"detail": "Return request not found."}, status=_Status.HTTP_404_NOT_FOUND)
         next_status = str(request.data.get("status", "")).upper()
         previous = item.status
         if next_status != previous and next_status not in self.transitions.get(previous, set()):
-            return _Phase27Response({"detail": f"Return request cannot transition from {previous} to {next_status}."}, status=_Phase27Status.HTTP_400_BAD_REQUEST)
+            return _Response({"detail": f"Return request cannot transition from {previous} to {next_status}."}, status=_Status.HTTP_400_BAD_REQUEST)
         resolution_note = request.data.get("resolution_note", item.resolution_note)
         if not isinstance(resolution_note, str) or len(resolution_note) > 4000:
-            return _Phase27Response({"resolution_note": "Must be text up to 4000 characters."}, status=_Phase27Status.HTTP_400_BAD_REQUEST)
+            return _Response({"resolution_note": "Must be text up to 4000 characters."}, status=_Status.HTTP_400_BAD_REQUEST)
         item.status = next_status
         item.resolution_note = resolution_note.strip()
         item.reviewed_by = request.user
@@ -2629,9 +2623,9 @@ class OrderReturnRequestStatusView(_Phase27APIView):
         else:
             message = f"Resolution note updated for return request #{item.id}."
             metadata = {"return_request_id": item.id, "status": next_status, "resolution_note_updated": True}
-        _record_phase27_order_event(order=item.order, user=request.user, event_type=OrderActivityEvent.EventType.RETURN,
+        _record_order_event(order=item.order, user=request.user, event_type=OrderActivityEvent.EventType.RETURN,
             message=message, metadata=metadata)
-        return _Phase27Response(OrderReturnRequestSerializer(item).data)
+        return _Response(OrderReturnRequestSerializer(item).data)
 
 
 class OrderActivityListCreateView(generics.ListCreateAPIView):
