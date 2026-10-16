@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Star, Send, RefreshCw } from "lucide-react";
+import { RefreshCw, Star } from "lucide-react";
 import {
   storefrontReviewsApiEnabled,
   getStorefrontProductReviews,
-  submitStorefrontProductReview,
 } from "../../services/storefrontCommerceApiService";
 
+// Used only in demo mode. In API mode the review endpoint is expected to return
+// the public/approved reviews only.
 const DEMO_REVIEWS = [
   { id: "demo-1", name: "Rahul S.", rating: 5, title: "Excellent product", comment: "Performance is very good and the product was packed safely." },
   { id: "demo-2", name: "Priya K.", rating: 4, title: "Good value", comment: "Great performance for the price." },
@@ -13,28 +14,47 @@ const DEMO_REVIEWS = [
 ];
 
 function Stars({ rating = 0, size = 15 }) {
-  return <div className="rating-stars" aria-label={`${rating} out of 5 stars`}>
-    {[1, 2, 3, 4, 5].map((star) => <Star key={star} size={size} fill={star <= Math.round(Number(rating) || 0) ? "#f59e0b" : "none"} color="#f59e0b" />)}
-  </div>;
+  return (
+    <div className="rating-stars" aria-label={`${rating} out of 5 stars`}>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star key={star} size={size} fill={star <= Math.round(Number(rating) || 0) ? "#f59e0b" : "none"} color="#f59e0b" />
+      ))}
+    </div>
+  );
+}
+
+function isPublicReview(review = {}) {
+  const status = String(review.status || review.moderationStatus || review.moderation_status || "").trim().toUpperCase();
+  return !status || ["APPROVED", "PUBLISHED", "PUBLIC"].includes(status);
 }
 
 function ProductReviews({ productId, rating = 0, totalReviews = 0 }) {
-  const [reviewData, setReviewData] = useState({ items: [], summary: { rating: Number(rating) || 0, count: Number(totalReviews) || 0 } });
+  const [reviewData, setReviewData] = useState({
+    items: [],
+    summary: { rating: Number(rating) || 0, count: Number(totalReviews) || 0 },
+  });
   const [loading, setLoading] = useState(storefrontReviewsApiEnabled);
-  const [submitting, setSubmitting] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [noticeType, setNoticeType] = useState("info");
-  const [form, setForm] = useState({ reviewerName: "", rating: 5, title: "", comment: "" });
+  const [loadError, setLoadError] = useState("");
 
   const refreshReviews = useCallback(async () => {
-    if (!storefrontReviewsApiEnabled || !productId) return;
+    if (!storefrontReviewsApiEnabled || !productId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setLoadError("");
     try {
       const result = await getStorefrontProductReviews(productId);
-      setReviewData(result);
+      const items = (Array.isArray(result?.items) ? result.items : []).filter(isPublicReview);
+      setReviewData({
+        items,
+        summary: {
+          rating: Number(result?.summary?.rating) || 0,
+          count: items.length,
+        },
+      });
     } catch (error) {
-      setNotice(error?.message || "Could not load product reviews.");
-      setNoticeType("error");
+      setLoadError(error?.message || "Could not load product reviews.");
     } finally {
       setLoading(false);
     }
@@ -42,50 +62,35 @@ function ProductReviews({ productId, rating = 0, totalReviews = 0 }) {
 
   useEffect(() => {
     if (storefrontReviewsApiEnabled) refreshReviews();
-  }, [refreshReviews]);
-
-  const updateForm = (event) => {
-    const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: name === "rating" ? Number(value) : value }));
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    if (!productId) return;
-    setSubmitting(true);
-    setNotice("");
-    try {
-      const result = await submitStorefrontProductReview(productId, form);
-      setNotice(result?.detail || "Review submitted and awaiting moderation.");
-      setNoticeType("success");
-      setForm({ reviewerName: "", rating: 5, title: "", comment: "" });
-    } catch (error) {
-      setNotice(error?.message || "Could not submit your review.");
-      setNoticeType("error");
-    } finally {
-      setSubmitting(false);
+    else {
+      setReviewData({ items: DEMO_REVIEWS, summary: { rating: Number(rating) || 0, count: DEMO_REVIEWS.length } });
+      setLoading(false);
     }
-  };
+  }, [refreshReviews, rating]);
 
   const visibleReviews = storefrontReviewsApiEnabled
     ? reviewData.items.map((review) => ({
         id: review.id,
-        name: review.reviewerName || "Customer",
+        name: review.reviewerName || review.reviewer_name || review.name || "Customer",
         rating: Number(review.rating) || 0,
         title: review.title || "",
-        comment: review.comment || "",
-        verifiedPurchase: Boolean(review.verifiedPurchase),
+        comment: review.comment || review.body || "",
+        verifiedPurchase: Boolean(review.verifiedPurchase ?? review.verified_purchase),
       }))
     : DEMO_REVIEWS;
-  const displayedRating = storefrontReviewsApiEnabled && !loading ? reviewData.summary.rating : (Number(rating) || 0);
-  const displayedCount = storefrontReviewsApiEnabled && !loading ? reviewData.summary.count : (Number(totalReviews) || 0);
+  const displayedRating = storefrontReviewsApiEnabled && !loading
+    ? reviewData.summary.rating
+    : (Number(rating) || 0);
+  const displayedCount = storefrontReviewsApiEnabled && !loading
+    ? reviewData.summary.count
+    : (storefrontReviewsApiEnabled ? Number(totalReviews) || 0 : visibleReviews.length);
 
   return (
-    <section className="product-section-block reviews-section">
+    <section className="product-section-block reviews-section" aria-labelledby="product-reviews-title">
       <div className="reviews-header">
         <div>
-          <h2>Ratings & Reviews</h2>
-          <p className="section-subtitle">See what other customers think about this product.</p>
+          <h2 id="product-reviews-title">Ratings &amp; Reviews</h2>
+          <p className="section-subtitle">Customer ratings and published reviews for this product.</p>
         </div>
         <div className="overall-rating">
           <strong>{Number(displayedRating).toFixed(1)}</strong>
@@ -94,35 +99,40 @@ function ProductReviews({ productId, rating = 0, totalReviews = 0 }) {
         </div>
       </div>
 
-      {storefrontReviewsApiEnabled ? (
-        <div className="storefront-review-form-wrap">
-          <h3>Write a review</h3>
-          <p className="section-subtitle">Reviews are checked by the store team before being published. No email or phone number is requested.</p>
-          <form className="storefront-review-form" onSubmit={handleSubmit}>
-            <label><span>Your display name</span><input name="reviewerName" value={form.reviewerName} onChange={updateForm} minLength={2} maxLength={100} required placeholder="e.g. Rahul S." /></label>
-            <label><span>Rating</span><select name="rating" value={form.rating} onChange={updateForm}>{[5, 4, 3, 2, 1].map((value) => <option key={value} value={value}>{value} star{value === 1 ? "" : "s"}</option>)}</select></label>
-            <label className="storefront-review-form-wide"><span>Review title</span><input name="title" value={form.title} onChange={updateForm} minLength={3} maxLength={120} required placeholder="Summarise your experience" /></label>
-            <label className="storefront-review-form-wide"><span>Your review</span><textarea name="comment" value={form.comment} onChange={updateForm} minLength={10} maxLength={2000} rows={4} required placeholder="Share useful details about the product" /></label>
-            <button type="submit" disabled={submitting}><Send size={15} /> {submitting ? "Submitting…" : "Submit review"}</button>
-          </form>
-          {notice && <p className={`storefront-review-notice ${noticeType}`} role="status">{notice}</p>}
-        </div>
-      ) : null}
-
       <div className="review-list">
-        {loading ? <p className="section-subtitle">Loading approved reviews…</p> : visibleReviews.map((review) => (
+        {loading && <p className="section-subtitle reviews-state-message">Loading published reviews…</p>}
+        {!loading && loadError && (
+          <div className="crm-empty-state reviews-state-message" role="alert">
+            <h3>Reviews could not be loaded</h3>
+            <p>{loadError}</p>
+            <button type="button" onClick={refreshReviews} className="crm-button crm-button-secondary crm-button-small">
+              <RefreshCw size={13} /> Try again
+            </button>
+          </div>
+        )}
+        {!loading && !loadError && visibleReviews.map((review) => (
           <article className="review-card" key={review.id}>
             <div className="review-top">
               <strong>{review.name}</strong>
               <div className="review-rating">{review.rating}<Star size={13} fill="currentColor" /></div>
             </div>
             <Stars rating={review.rating} size={13} />
-            <h3>{review.title}</h3>
+            {review.title && <h3>{review.title}</h3>}
             <p>{review.comment}</p>
             {review.verifiedPurchase && <span className="verified-review-badge">Verified purchase</span>}
           </article>
         ))}
-        {!loading && visibleReviews.length === 0 && storefrontReviewsApiEnabled && <div className="crm-empty-state"><h3>No approved reviews yet</h3><p>Your review can be the first once the store team approves it.</p><button type="button" onClick={refreshReviews} className="crm-button crm-button-secondary crm-button-small"><RefreshCw size={13} /> Refresh</button></div>}
+        {!loading && !loadError && visibleReviews.length === 0 && (
+          <div className="crm-empty-state reviews-state-message">
+            <h3>No published reviews yet</h3>
+            <p>Published customer reviews will appear here. After your order ships, you can review it from My Orders.</p>
+            {storefrontReviewsApiEnabled && (
+              <button type="button" onClick={refreshReviews} className="crm-button crm-button-secondary crm-button-small">
+                <RefreshCw size={13} /> Refresh reviews
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );

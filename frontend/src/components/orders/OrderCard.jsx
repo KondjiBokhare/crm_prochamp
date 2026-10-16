@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import OrderTimeline from "./OrderTimeline";
+import OrderItemReview from "./OrderItemReview";
 
 function OrderCard({ order }) {
   return (
@@ -57,6 +58,7 @@ function OrderCard({ order }) {
                   ₹{item.price.toLocaleString("en-IN")}
                 </strong>
                 <span>Qty: {item.quantity}</span>
+                <OrderItemReview order={order} item={item} />
               </div>
             </div>
           ))}

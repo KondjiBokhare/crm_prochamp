@@ -102,6 +102,14 @@ function Products() {
 
 
   // =========================================
+  // PRODUCT VIEW MODE (GRID / LIST)
+  // =========================================
+
+  const [viewMode, setViewMode] =
+    useState("grid");
+
+
+  // =========================================
   // FILTER ANIMATION
   // =========================================
 
@@ -979,6 +987,10 @@ function Products() {
               onSortChange={
                 setSortValue
               }
+
+              viewMode={viewMode}
+
+              onViewModeChange={setViewMode}
             />
 
 
@@ -1216,7 +1228,9 @@ function Products() {
 
             <div
               key={filterVersion}
-              className="search-product-grid filter-result-animation"
+              className={`search-product-grid filter-result-animation ${
+                viewMode === "list" ? "list-view" : "grid-view"
+              }`}
             >
 
               {visibleProducts.map(

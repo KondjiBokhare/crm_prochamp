@@ -16,8 +16,23 @@ import { useCart } from "../../context/CartContext";
 import { useWishlist } from "../../context/WishlistContext";
 
 import NotificationModal from "./NotificationModal";
-import { getNotificationsForUser, markNotificationReadForUser, markAllNotificationsReadForUser } from "../../services/crmService";
-import { subscribeToNotificationChanges } from "../../services/notificationCenterService";
+import {
+  getNotificationsForUser as getCrmNotificationsForUser,
+  markNotificationReadForUser as markCrmNotificationReadForUser,
+  markAllNotificationsReadForUser as markAllCrmNotificationsReadForUser,
+} from "../../services/crmService";
+import {
+  getNotificationsForUser as getLocalNotificationsForUser,
+  markNotificationReadForUser as markLocalNotificationReadForUser,
+  markAllNotificationsReadForUser as markAllLocalNotificationsReadForUser,
+  subscribeToNotificationChanges,
+} from "../../services/notificationCenterService";
+import { getStorefrontOrders, storefrontOrdersApiEnabled } from "../../services/storefrontOrderApiService";
+import { getDemoOrders } from "../../services/demoOrderService";
+import {
+  isProductReviewSubmitted,
+  syncReviewReminderNotifications,
+} from "../../services/customerReviewUiService";
 import StoreLogo from "./StoreLogo";
 
 function Navbar() {
@@ -36,19 +51,67 @@ const { wishlistCount } = useWishlist();
 
   const loadNotifications = useCallback(async () => {
     if (!isAuthenticated || !user) { setNotifications([]); return; }
+
+    let apiRecords = [];
     try {
-      const records = await getNotificationsForUser(user, authenticatedRequest);
-      setNotifications(Array.isArray(records) ? records : []);
+      const records = await getCrmNotificationsForUser(user, authenticatedRequest);
+      apiRecords = Array.isArray(records) ? records : [];
     } catch (error) {
-      // The UI still loads if the notification API is temporarily unavailable.
-      console.warn("Could not load notifications:", error.message);
+      // Local review reminders should still display while the notification API is unavailable.
+      console.warn("Could not load CRM notifications:", error.message);
     }
+
+    const localReviewReminders = getLocalNotificationsForUser(user)
+      .filter((notification) => notification.source === "review-reminder");
+    const byId = new Map();
+    [...apiRecords, ...localReviewReminders].forEach((notification) => {
+      if (notification?.id != null) byId.set(String(notification.id), notification);
+    });
+
+    const merged = [...byId.values()]
+      .filter((notification) => !(
+        notification.source === "review-reminder" &&
+        isProductReviewSubmitted(user, notification.metadata?.productId)
+      ))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    setNotifications(merged);
   }, [isAuthenticated, user?.email, user?.role, user?.id, authenticatedRequest]);
 
   useEffect(() => {
     loadNotifications();
     return subscribeToNotificationChanges(loadNotifications);
   }, [loadNotifications]);
+
+  const syncReviewReminders = useCallback(async () => {
+    if (!isAuthenticated || !user?.email || (user?.role && String(user.role).toUpperCase() !== "CUSTOMER")) return;
+    try {
+      let orders = [];
+      if (storefrontOrdersApiEnabled) {
+        if (typeof authenticatedRequest !== "function") return;
+        orders = await getStorefrontOrders(authenticatedRequest);
+      } else {
+        const email = String(user.email).trim().toLowerCase();
+        orders = getDemoOrders().filter((order) => String(order.customerEmail || "").trim().toLowerCase() === email);
+      }
+      syncReviewReminderNotifications(orders, user);
+    } catch (error) {
+      // Reminder generation is a UI enhancement; it must not break the storefront.
+      console.warn("Could not check review reminders:", error?.message || error);
+    }
+  }, [isAuthenticated, user?.email, user?.role, user?.id, authenticatedRequest]);
+
+  useEffect(() => {
+    syncReviewReminders();
+    window.addEventListener("techgear:demo-orders-updated", syncReviewReminders);
+    window.addEventListener("focus", syncReviewReminders);
+    // Frontend polling catches a status changed by CRM while the customer keeps the store open.
+    const pollId = window.setInterval(syncReviewReminders, 60_000);
+    return () => {
+      window.removeEventListener("techgear:demo-orders-updated", syncReviewReminders);
+      window.removeEventListener("focus", syncReviewReminders);
+      window.clearInterval(pollId);
+    };
+  }, [syncReviewReminders]);
 
   const unreadCount = notifications.filter((notification) => !notification.read).length;
 
@@ -90,11 +153,27 @@ const { wishlistCount } = useWishlist();
   };
 
   const handleMarkRead = async (id) => {
-    try { await markNotificationReadForUser(id, user, authenticatedRequest); } finally { await loadNotifications(); }
+    const notification = notifications.find((item) => String(item.id) === String(id));
+    try {
+      if (notification?.source === "review-reminder") {
+        markLocalNotificationReadForUser(id, user);
+      } else {
+        await markCrmNotificationReadForUser(id, user, authenticatedRequest);
+      }
+    } finally {
+      await loadNotifications();
+    }
   };
 
   const handleMarkAllRead = async () => {
-    try { await markAllNotificationsReadForUser(user, authenticatedRequest); } finally { await loadNotifications(); }
+    try {
+      await markAllCrmNotificationsReadForUser(user, authenticatedRequest);
+    } catch (error) {
+      console.warn("Could not mark remote notifications read:", error?.message || error);
+    } finally {
+      markAllLocalNotificationsReadForUser(user);
+      await loadNotifications();
+    }
   };
 
   return (

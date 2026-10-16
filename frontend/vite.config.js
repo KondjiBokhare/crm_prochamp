@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     allowedHosts: [
-      'improve-cheque-clip-isolation.trycloudflare.com'
+      'motherboard-given-mins-electron.trycloudflare.com'
     ],
   },
 })
