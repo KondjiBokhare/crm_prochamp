@@ -2,7 +2,7 @@
 databases:
   - name: crm-prochamp-db
     region: singapore
-    plan: 0.1c-256mb
+    plan: free
     databaseName: techgear_crm
     user: techgear_crm
 
@@ -20,7 +20,7 @@ services:
     name: crm-prochamp-api
     runtime: python
     region: singapore
-    plan: 0.5c-512mb
+    plan: free
     rootDir: backend
     buildCommand: bash build.sh
     preDeployCommand: python manage.py migrate --noinput
@@ -28,10 +28,10 @@ services:
     healthCheckPath: /health/
     autoDeployTrigger: checksPass
 
-    disk:
-      name: crm-profile-media
-      mountPath: /var/data
-      sizeGB: 1
+    # disk:
+    #   name: crm-profile-media
+    #   mountPath: /var/data
+    #   sizeGB: 1
 
     envVars:
       - key: DJANGO_SECRET_KEY
