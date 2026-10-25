@@ -53,9 +53,12 @@ services:
           name: crm-prochamp-cache
           type: keyvalue
           property: connectionString
+      
+      - key: STOREFRONT_ORGANIZATION_ID
+        value: "1"
 
       - key: MEDIA_ROOT
-        value: /var/data/media
+        value: /tmp/media
 
       - key: CORS_ALLOWED_ORIGINS
         value: https://crm-prochamp-frontend.onrender.com
