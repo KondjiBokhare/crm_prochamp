@@ -23,7 +23,7 @@ services:
     plan: free
     rootDir: backend
     buildCommand: bash build.sh
-    preDeployCommand: python manage.py migrate --noinput
+    # preDeployCommand: python manage.py migrate --noinput
     startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
     healthCheckPath: /health/
     autoDeployTrigger: checksPass
