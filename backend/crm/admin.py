@@ -275,6 +275,12 @@ class AuditLogAdmin(admin.ModelAdmin):
         "created_at",
     )
 
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
     def has_add_permission(self, request):
         return False
 
@@ -338,11 +344,11 @@ class HomepagePromotionSettingsAdmin(admin.ModelAdmin):
 
 
 # Phase 23 administration views
-from .models import StorefrontSettings, CommunicationTemplate, CommunicationLog, Notification
+from .models import CrmSettings, CommunicationTemplate, CommunicationLog, Notification
 
 
-@admin.register(StorefrontSettings)
-class StorefrontSettingsAdmin(admin.ModelAdmin):
+@admin.register(CrmSettings)
+class CrmSettingsAdmin(admin.ModelAdmin):
     list_display = ("organization", "updated_by", "updated_at")
     search_fields = ("organization__name",)
     readonly_fields = ("created_at", "updated_at")
@@ -393,23 +399,23 @@ class CustomerBehaviorEventAdmin(admin.ModelAdmin):
 
 
 # Phase 25 storefront commerce data
-from .models import StorefrontCart, StorefrontCartItem, StorefrontWishlistItem, ProductReview
+from .models import CrmCart, CrmCartItem, CrmWishlistItem, ProductReview
 
-@admin.register(StorefrontCart)
-class StorefrontCartAdmin(admin.ModelAdmin):
+@admin.register(CrmCart)
+class CrmCartAdmin(admin.ModelAdmin):
     list_display = ("id", "organization", "visitor_id", "updated_at")
     list_filter = ("organization", "updated_at")
     search_fields = ("visitor_id",)
     readonly_fields = ("created_at", "updated_at")
 
-@admin.register(StorefrontCartItem)
-class StorefrontCartItemAdmin(admin.ModelAdmin):
+@admin.register(CrmCartItem)
+class CrmCartItemAdmin(admin.ModelAdmin):
     list_display = ("cart", "product", "quantity", "updated_at")
     search_fields = ("product__name", "cart__visitor_id")
     readonly_fields = ("created_at", "updated_at")
 
-@admin.register(StorefrontWishlistItem)
-class StorefrontWishlistItemAdmin(admin.ModelAdmin):
+@admin.register(CrmWishlistItem)
+class CrmWishlistItemAdmin(admin.ModelAdmin):
     list_display = ("organization", "visitor_id", "product", "created_at")
     list_filter = ("organization", "created_at")
     search_fields = ("visitor_id", "product__name")
@@ -475,15 +481,15 @@ class OrderActivityEventAdmin(admin.ModelAdmin):
         return False
 
 
-from .models import StorefrontCustomerProfile, StorefrontAddress
+from .models import CrmCustomerProfile, CrmAddress
 
-@admin.register(StorefrontCustomerProfile)
-class StorefrontCustomerProfileAdmin(admin.ModelAdmin):
+@admin.register(CrmCustomerProfile)
+class CrmCustomerProfileAdmin(admin.ModelAdmin):
     list_display = ("user", "phone", "gender", "updated_at")
     search_fields = ("user__email", "user__first_name", "user__last_name", "phone")
 
-@admin.register(StorefrontAddress)
-class StorefrontAddressAdmin(admin.ModelAdmin):
+@admin.register(CrmAddress)
+class CrmAddressAdmin(admin.ModelAdmin):
     list_display = ("full_name", "user", "city", "state", "postal_code", "is_default")
     search_fields = ("user__email", "full_name", "city", "postal_code")
     list_filter = ("country", "state", "is_default")

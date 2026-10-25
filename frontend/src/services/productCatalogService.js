@@ -142,7 +142,7 @@ function normaliseInput(input, existing, products) {
   const images = rawImages.map(safeImageUrl).filter(Boolean);
   const image = images[0] || (hasImagesArray ? "" : safeImageUrl(input.image ?? existing?.image ?? ""));
   const discount = mrp && mrp > price ? Math.round(((mrp - price) / mrp) * 100) : 0;
-  const parseLines = (value, fallback = []) => {
+  const parseLines = (value) => {
     if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
     return String(value ?? "").split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
   };
@@ -288,6 +288,62 @@ export async function createCatalogProduct(input, authenticatedRequest) {
   writeCatalog(products);
   return clone(product);
 }
+
+
+// bulk product addd
+
+export async function bulkCreateCatalogProducts(
+  inputs,
+  authenticatedRequest
+) {
+  if (!Array.isArray(inputs) || inputs.length === 0) {
+    throw new Error("Select a CSV containing at least one product.");
+  }
+
+  if (useApi) {
+    const request = requireAuthenticatedRequest(authenticatedRequest);
+
+    // Send the entire product list to Django in one request.
+    const payload = inputs.map(toApiProductPayload);
+
+    const response = await request("/api/crm/products/", {
+      method: "POST",
+      body: payload,
+    });
+
+    const savedProducts = unwrapList(response).map(
+      (product, index) => normaliseSeed(product, index)
+    );
+
+    if (savedProducts.length !== inputs.length) {
+      throw new Error(
+        "The server returned an unexpected number of created products."
+      );
+    }
+
+    emitChange();
+    return savedProducts;
+  }
+
+  // Preserve the existing browser-demo mode as well.
+  const existingProducts = readStoredCatalog();
+  const importedProducts = [];
+
+  for (const input of inputs) {
+    const product = normaliseInput(
+      input,
+      null,
+      [...existingProducts, ...importedProducts]
+    );
+
+    importedProducts.push(product);
+  }
+
+  writeCatalog([...importedProducts, ...existingProducts]);
+
+  return importedProducts.map(clone);
+}
+
 
 export async function updateCatalogProduct(id, input, authenticatedRequest) {
   if (useApi) {

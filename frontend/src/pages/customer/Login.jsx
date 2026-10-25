@@ -156,23 +156,29 @@ const { login, loginWithCustomerBackend, isStorefrontAuthEnabled } = useAuth();
         </form>
 
         {/* Divider */}
-        <div className="auth-divider">
+        {/* <div className="auth-divider">
           <span>OR</span>
-        </div>
+        </div> */}
 
         {/* Google */}
-      <button className="google-button">
+      {/* <button className="google-button">
   <span className="google-g-icon">G</span>
   Continue with Google
-</button>
+</button> */}
 
         {/* Signup */}
         <p className="auth-switch">
           Don't have an account?
           {" "}
-          <Link to="/signup">
-            Create an account
-          </Link>
+          <Link
+  to="/signup"
+  state={{
+    backgroundLocation: location.state?.backgroundLocation,
+    from: location.state?.from,
+  }}
+>
+  Signup
+</Link>
         </p>
 
         <p className="auth-switch">

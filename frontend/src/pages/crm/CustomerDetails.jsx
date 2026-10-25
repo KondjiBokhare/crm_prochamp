@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect,   useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { CreditCard, Eye, MapPin, MessageSquare, Clock3, Package, UserRound, RefreshCw, Truck, RotateCcw } from "lucide-react";
+import { CreditCard, Eye, MapPin, MessageSquare, Clock3, Package,  RefreshCw, Truck, RotateCcw } from "lucide-react";
 import { crmCustomersMode, getCustomerById, getCustomerOrders, updateCustomer } from "../../services/crmService";
 import { getCustomerProfileOverview, getCustomerProfileImage } from "../../services/customerProfileApiService";
 import { useAuth } from "../../context/AuthContext";
@@ -137,7 +137,7 @@ function CustomerDetails() {
   const activity = overview?.activity || [];
   const deliveredOrders = orders.filter((order) => String(order.status || order.fulfillmentStatus || "").toUpperCase() === "DELIVERED");
   const apiOrderSpend = deliveredOrders.reduce((total, order) => total + Number(order.total || 0), 0);
-  const latestOrderDate = useMemo(() => orders.map((order) => order.date || order.order_date).filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0], [orders]);
+
   const initials = nameInitials(customer?.name);
 
   if (loading) return <div className="crm-loading">Loading customer 360° profile…</div>;

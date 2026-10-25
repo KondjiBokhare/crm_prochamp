@@ -20,9 +20,9 @@ from .models import (
     Interaction,
     Order,
     OrderActivityEvent,
-    StorefrontAddress,
-    StorefrontCustomerProfile,
-    StorefrontSavedPaymentMethod,
+    CrmAddress,
+    CrmCustomerProfile,
+    CrmSavedPaymentMethod,
     SupportTicket,
 )
 
@@ -114,7 +114,7 @@ def _ticket_payload(ticket):
 
 
 def _order_payload(order):
-    details = order.storefront_data if isinstance(order.storefront_data, dict) else {}
+    details = order.crm_data if isinstance(order.crm_data, dict) else {}
     items = details.get("items") if isinstance(details.get("items"), list) else []
     safe_items = []
     for row in items[:100]:
@@ -192,9 +192,9 @@ class CustomerProfileOverviewView(APIView):
         addresses = []
         payment_methods = []
         if account:
-            profile = StorefrontCustomerProfile.objects.filter(user=account).first()
-            addresses = list(StorefrontAddress.objects.filter(user=account).order_by("-is_default", "-updated_at"))
-            payment_methods = list(StorefrontSavedPaymentMethod.objects.filter(user=account).order_by("-is_default", "-updated_at"))
+            profile = CrmCustomerProfile.objects.filter(user=account).first()
+            addresses = list(CrmAddress.objects.filter(user=account).order_by("-is_default", "-updated_at"))
+            payment_methods = list(CrmSavedPaymentMethod.objects.filter(user=account).order_by("-is_default", "-updated_at"))
 
         raw_orders = list(
             Order.objects.filter(organization=customer.organization, customer=customer)
@@ -231,9 +231,9 @@ class CustomerProfileOverviewView(APIView):
             # even when the deleted row is no longer present in the current snapshot.
             audits_q |= Q(user=account)
         if profile:
-            audits_q |= Q(entity_type__iexact="StorefrontCustomerProfile", entity_id=str(profile.pk))
+            audits_q |= Q(entity_type__iexact="CrmCustomerProfile", entity_id=str(profile.pk))
         if addresses:
-            audits_q |= Q(entity_type__iexact="StorefrontAddress", entity_id__in=[str(item.pk) for item in addresses])
+            audits_q |= Q(entity_type__iexact="CrmAddress", entity_id__in=[str(item.pk) for item in addresses])
         if raw_orders:
             audits_q |= Q(entity_type__iexact="Order", entity_id__in=[str(item.pk) for item in raw_orders] + [str(item.order_number) for item in raw_orders])
         if tickets:
@@ -296,7 +296,7 @@ class CustomerProfileOverviewView(APIView):
                 )
         for method in payment_methods:
             method_description = f"{method.method_type} · {method.label}"
-            if method.method_type == StorefrontSavedPaymentMethod.MethodType.CARD:
+            if method.method_type == CrmSavedPaymentMethod.MethodType.CARD:
                 method_description += f" · ending {method.last_four}"
             elif method.upi_id:
                 method_description += f" · {_mask_upi_id(method.upi_id)}"
@@ -367,7 +367,7 @@ class CustomerProfileOverviewView(APIView):
                     "label": method.label,
                     "provider": method.provider,
                     "maskedDetails": (
-                        f"•••• {method.last_four}" if method.method_type == StorefrontSavedPaymentMethod.MethodType.CARD
+                        f"•••• {method.last_four}" if method.method_type == CrmSavedPaymentMethod.MethodType.CARD
                         else _mask_upi_id(method.upi_id)
                     ),
                     "lastFour": method.last_four or None,
@@ -428,7 +428,7 @@ class StorefrontCustomerProfileImageView(APIView):
     def _profile(self, request):
         if getattr(request.user, "role", None) != "CUSTOMER" or not request.user.is_active:
             raise PermissionDenied("A signed-in customer account is required.")
-        profile, _ = StorefrontCustomerProfile.objects.get_or_create(user=request.user)
+        profile, _ = CrmCustomerProfile.objects.get_or_create(user=request.user)
         return profile
 
     def get(self, request):
@@ -443,7 +443,7 @@ class StorefrontCustomerProfileImageView(APIView):
         profile.save(update_fields=["profile_image", "updated_at"])
         if old_name and old_name != profile.profile_image.name:
             profile.profile_image.storage.delete(old_name)
-        _record_profile_audit(request, "UPDATE", "StorefrontCustomerProfile", profile.pk, "Customer updated their profile image.")
+        _record_profile_audit(request, "UPDATE", "CrmCustomerProfile", profile.pk, "Customer updated their profile image.")
         return Response({"hasProfileImage": True, "updatedAt": _iso(profile.updated_at)}, status=status.HTTP_200_OK)
 
     def delete(self, request):
@@ -452,7 +452,7 @@ class StorefrontCustomerProfileImageView(APIView):
             profile.profile_image.delete(save=False)
             profile.profile_image = None
             profile.save(update_fields=["profile_image", "updated_at"])
-            _record_profile_audit(request, "UPDATE", "StorefrontCustomerProfile", profile.pk, "Customer removed their profile image.")
+            _record_profile_audit(request, "UPDATE", "CrmCustomerProfile", profile.pk, "Customer removed their profile image.")
         return Response({"hasProfileImage": False}, status=status.HTTP_200_OK)
 
 
@@ -464,5 +464,5 @@ class CustomerProfileImageView(APIView):
         account = _matching_account(customer)
         if not account:
             raise Http404("This CRM customer has no linked storefront account.")
-        profile = StorefrontCustomerProfile.objects.filter(user=account).first()
+        profile = CrmCustomerProfile.objects.filter(user=account).first()
         return _serve_private_profile_image(profile)

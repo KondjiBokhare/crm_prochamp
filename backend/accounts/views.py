@@ -1,36 +1,20 @@
 import uuid
 from datetime import datetime, timezone as datetime_timezone
-
-# ============================================================
-# Django imports
-# ============================================================
-
 from django.contrib.auth import authenticate, get_user_model
 from django.db import transaction
 from django.utils import timezone
-
-# ============================================================
-# Django REST Framework imports
-# ============================================================
-
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-
-# ============================================================
-# Simple JWT imports
-# ============================================================
-
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
-
-# ============================================================
-# Local application imports
-# ============================================================
-
-from .models import RefreshToken
-from .permissions import IsAdmin
+from rest_framework.views import APIView
+from .models import Organization, RefreshToken
+from .permissions import (
+    ACCOUNT_ROLE_ACCESS,
+    IsSuperAdmin,
+    IsSuperAdminOrOrganizationAdmin,
+)
 from .serializers import (
     OrganizationSerializer,
     RegisterSerializer,
@@ -44,16 +28,8 @@ from .token_service import (
     decode_token,
 )
 
-# ============================================================
-# User model
-# ============================================================
-
 User = get_user_model()
 
-
-# ============================================================
-# Shared authentication response helpers
-# ============================================================
 
 def build_user_payload(user):
     """Return public user information for authentication responses."""
@@ -61,6 +37,8 @@ def build_user_payload(user):
         "id": user.pk,
         "email": user.email,
         "role": user.role,
+        "is_super_admin": user.is_superuser,
+        "effective_role": "SUPER_ADMIN" if user.is_superuser else user.role,
     }
 
 
@@ -102,90 +80,58 @@ def parse_refresh_token(raw_token):
     return payload["sub"], uuid.UUID(payload["jti"])
 
 
-# ============================================================
-# Simple JWT authentication and audit logging
-# ============================================================
+def record_successful_login(user, request):
+    """Update login metadata and write an audit event for custom JWT logins."""
+    try:
+        from crm.models import AuditLog
 
-class AuditedTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """Record successful Simple JWT logins in the CRM audit log."""
+        organization = getattr(user, "organization", None)
+        if user.role == User.Role.CUSTOMER:
+            from crm.storefront_utils import ensure_storefront_customer
 
-    def validate(self, attrs):
-        data = super().validate(attrs)
-        user = self.user
+            directory_customer = ensure_storefront_customer(user)
+            organization = getattr(directory_customer, "organization", None) or organization
 
-        try:
-            from crm.models import AuditLog
+        user.last_login = timezone.now()
+        user.save(update_fields=["last_login"])
 
-            organization = getattr(user, "organization", None)
-
-            if user.role == User.Role.CUSTOMER:
-                from crm.storefront_utils import (
-                    ensure_storefront_customer,
-                )
-
-                directory_customer = ensure_storefront_customer(user)
-
-                organization = (
-                    getattr(directory_customer, "organization", None)
-                    or organization
-                )
-
-            now = timezone.now()
-
-            if user.last_login != now:
-                user.last_login = now
-                user.save(update_fields=["last_login"])
-
-            if organization:
-                request = self.context.get("request")
-                request_meta = (
-                    getattr(request, "META", {})
-                    if request
-                    else {}
-                )
-
-                AuditLog.objects.create(
-                    organization=organization,
-                    user=user,
-                    action=AuditLog.ActionType.LOGIN,
-                    entity_type="User",
-                    entity_id=str(user.pk),
-                    description="Successful sign-in to the account.",
-                    ip_address=request_meta.get("REMOTE_ADDR"),
-                )
-
-        except Exception:
-            # Optional audit logging must not silently hide failures
-            # in production. Replace with proper exception logging.
-            pass
-
-        return data
+        if organization:
+            AuditLog.objects.create(
+                organization=organization,
+                user=user,
+                action=AuditLog.ActionType.LOGIN,
+                entity_type="User",
+                entity_id=str(user.pk),
+                description="Successful sign-in to the account.",
+                ip_address=request.META.get("REMOTE_ADDR"),
+            )
+    except Exception:
+        # An optional CRM audit record must not prevent authentication.
+        pass
 
 
-class AuditedTokenObtainPairView(TokenObtainPairView):
-    """Simple JWT login endpoint with audit logging."""
+def record_tenant_management_audit(request, organization, action, entity_type, entity_id, description):
+    """Record superadmin organization and organization-admin changes."""
+    from crm.models import AuditLog
 
-    serializer_class = AuditedTokenObtainPairSerializer
+    AuditLog.objects.create(
+        organization=organization,
+        user=request.user,
+        action=action,
+        entity_type=entity_type,
+        entity_id=str(entity_id),
+        description=description,
+        ip_address=request.META.get("REMOTE_ADDR"),
+    )
 
-
-# ============================================================
-# Public registration
-# ============================================================
 
 class RegisterView(generics.CreateAPIView):
     """Register a customer through the single public endpoint."""
-
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
 
-
-# ============================================================
-# Authenticated user profile
-# ============================================================
-
 class MeView(generics.RetrieveAPIView):
     """Return the currently authenticated user's profile."""
-
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
@@ -193,51 +139,123 @@ class MeView(generics.RetrieveAPIView):
         return self.request.user
 
 
-# ============================================================
-# Admin-only organization management
-# ============================================================
+class RoleAccessView(APIView):
+    """Return the clear accounts-API access contract for every role."""
 
-class OrganizationCreateView(generics.CreateAPIView):
-    """Create an organization using the Admin permission."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(
+            {
+                "current_role": request.user.role,
+                "is_super_admin": request.user.is_superuser,
+                "effective_role": (
+                    "SUPER_ADMIN"
+                    if request.user.is_superuser
+                    else request.user.role
+                ),
+                "roles": ACCOUNT_ROLE_ACCESS,
+            }
+        )
+
+
+class OrganizationCreateView(generics.ListCreateAPIView):
+    """Create an organization. This is a superadmin-only operation."""
 
     serializer_class = OrganizationSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+    queryset = Organization.objects.all()
 
-
-# ============================================================
-# Admin-only staff and user management
-# ============================================================
+    def perform_create(self, serializer):
+        organization = serializer.save()
+        record_tenant_management_audit(
+            self.request,
+            organization,
+            "CREATE",
+            "Organization",
+            organization.pk,
+            f"Created organization '{organization.name}'.",
+        )
 
 class StaffUserListCreateView(generics.ListCreateAPIView):
     """
     List user accounts and create staff accounts.
 
-    Only Admins can access this endpoint.
-    The list includes customers so Admins can identify accounts
-    they want to promote to staff.
+    Superadmins can list and create accounts globally. Organization Admins
+    can list only users belonging to their own organization; staff creation
+    remains a superadmin-only operation.
     """
 
     serializer_class = StaffUserSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
-    queryset = User.objects.all().order_by("email")
+    queryset = User.objects.filter(is_superuser=False).order_by("email")
+
+    def get_permissions(self):
+        permission_types = (
+            [IsAuthenticated, IsSuperAdmin]
+            if self.request.method == "POST"
+            else [IsAuthenticated, IsSuperAdminOrOrganizationAdmin]
+        )
+        return [permission() for permission in permission_types]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.request.user.is_superuser:
+            return queryset
+        return queryset.filter(organization_id=self.request.user.organization_id)
+
+    def perform_create(self, serializer):
+        user = serializer.save()
+        if user.organization_id:
+            record_tenant_management_audit(
+                self.request,
+                user.organization,
+                "CREATE",
+                "OrganizationAdmin" if user.role == User.Role.ADMIN else "User",
+                user.pk,
+                f"Created {user.role.lower()} account '{user.email}'.",
+            )
 
 
 class StaffUserDetailView(generics.RetrieveUpdateAPIView):
     """
     Retrieve or update an account.
 
-    PATCH can be used by an Admin to promote an existing customer
-    or update a staff member's role and active status.
+    Superadmins can update any non-superadmin account. Organization Admins
+    can update users in their own organization, but cannot change their own
+    role or move a user to another organization.
     """
 
     serializer_class = StaffUserSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
-    queryset = User.objects.all()
+    permission_classes = [IsAuthenticated, IsSuperAdminOrOrganizationAdmin]
+    queryset = User.objects.filter(is_superuser=False)
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.request.user.is_superuser:
+            return queryset
+        return queryset.filter(organization_id=self.request.user.organization_id)
 
-# ============================================================
+    def perform_update(self, serializer):
+        if (
+            not self.request.user.is_superuser
+            and "organization" in serializer.validated_data
+        ):
+            raise PermissionDenied(
+                "Organization Admins cannot change a user's organization."
+            )
+
+        user = serializer.save()
+        if user.organization_id:
+            record_tenant_management_audit(
+                self.request,
+                user.organization,
+                "UPDATE",
+                "OrganizationAdmin" if user.role == User.Role.ADMIN else "User",
+                user.pk,
+                f"Updated {user.role.lower()} account '{user.email}'.",
+            )
+
 # Custom JWT authentication: login
-# ============================================================
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -278,6 +296,7 @@ def custom_login(request):
     refresh_token = create_refresh_token(user)
 
     persist_refresh_token(user, refresh_token)
+    record_successful_login(user, request)
 
     return Response(
         build_auth_response(
@@ -287,11 +306,6 @@ def custom_login(request):
         ),
         status=status.HTTP_200_OK,
     )
-
-
-# ============================================================
-# Custom JWT authentication: refresh and rotation
-# ============================================================
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -361,11 +375,6 @@ def custom_refresh(request):
         ),
         status=status.HTTP_200_OK,
     )
-
-
-# ============================================================
-# Custom JWT authentication: logout
-# ============================================================
 
 @api_view(["POST"])
 @permission_classes([AllowAny])

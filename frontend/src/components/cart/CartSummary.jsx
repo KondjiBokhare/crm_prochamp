@@ -1,5 +1,5 @@
 import { ShieldCheck, Truck } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 import { useAuth } from "../../context/AuthContext";
 
@@ -19,6 +19,7 @@ function CartSummary({
   couponEnabled = false,
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { isAuthenticated } = useAuth();
 
@@ -26,7 +27,12 @@ function CartSummary({
 
   const handleCheckout = () => {
     if (!isAuthenticated) {
-      navigate("/login");
+     navigate("/login", {
+  state: {
+    backgroundLocation: location,
+    from: "/checkout",
+  },
+});
       return;
     }
 

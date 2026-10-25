@@ -49,3 +49,14 @@ desktop.ini
 # Optional: uncomment if backend/media contains
 # user-uploaded files or private customer images
 # backend/media/
+
+# Local project archives
+/backend.zip
+/ecommerce-crm.zip
+/frontend.zip
+/frontend/src/components/checkout.zip
+/frontend/src/components/profile.zip
+/frontend/src/pages/customer.zip
+
+# Uploaded runtime media
+/backend/media/

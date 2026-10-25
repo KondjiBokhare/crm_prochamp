@@ -1,8 +1,6 @@
-from django.db.migrations import serializer
-from requests import request
 from rest_framework import generics
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
+from rest_framework.permissions import BasePermission, IsAuthenticated, SAFE_METHODS
 from rest_framework.exceptions import ValidationError
 from django.db import models
 from rest_framework.views import APIView
@@ -10,7 +8,7 @@ from rest_framework import status
 
 
 # Analytical things
-from django.db.models import Sum, Avg
+from django.db.models import Sum
 from rest_framework.response import Response
 from django.db.models import Count, Sum, Q, DecimalField, Value
 from django.db.models.functions import Coalesce
@@ -20,7 +18,6 @@ from zoneinfo import ZoneInfo
 from rest_framework.exceptions import ValidationError
 from django.utils import timezone
 from accounts import serializers
-
 from .models import (
     Customer,
     Interaction,
@@ -43,18 +40,17 @@ from .serializers import (
 
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import (
-    IsAdminOrReadOnly,
-    IsSalesOrAdmin,
+    IsCustomer,
+    IsPublicProductReadOnly,
     IsSalesWriteOrSupportReadOnly,
-    IsSupportOrAdmin,
     IsInteractionAllowed,
 )
 
 from accounts.permissions import (
     IsSegmentAllowed,
     IsCampaignAllowed,
-    IsAdminOrReadOnly,
     IsAdminOrManagement,
+    IsSuperAdmin,
 )
 
 from crm.services import update_customer_lifecycle
@@ -412,10 +408,10 @@ class OrderDetailView(
         )
 
     def perform_destroy(self, instance):
-        # Storefront orders are a customer-visible audit trail; cancel/update them
+        # Crm orders are a customer-visible audit trail; cancel/update them
         # rather than hard-deleting them from CRM.
         if instance.source_user_id:
-            raise ValidationError({"detail": "Storefront-created orders cannot be deleted. Update the order status to Cancelled instead."})
+            raise ValidationError({"detail": "Crm-created orders cannot be deleted. Update the order status to Cancelled instead."})
         customer = instance.customer
         order_id = instance.id
         order_number = instance.order_number
@@ -778,13 +774,15 @@ class AuditLogListView(generics.ListAPIView):
     serializer_class = AuditLogSerializer
     permission_classes = [
         IsAuthenticated,
-        IsAdminOrManagement,
+        IsSuperAdmin,
     ]
 
     def get_queryset(self):
-        queryset = AuditLog.objects.filter(
-            organization=self.request.user.organization
-        ).select_related("user")
+        queryset = AuditLog.objects.select_related("user", "organization")
+
+        organization_id = self.request.query_params.get("organization_id")
+        if organization_id:
+            queryset = queryset.filter(organization_id=organization_id)
 
         action = self.request.query_params.get("action")
         entity_type = self.request.query_params.get("entity_type")
@@ -853,6 +851,25 @@ class IsCatalogStaffAllowed(IsAuthenticated):
         return bool(user.is_superuser or user.role in {"ADMIN", "SALES"})
 
 
+class IsProductPublicReadManagementWrite(BasePermission):
+    """Allow Admin and Management users to manage products."""
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+
+        user = request.user
+
+        return bool(
+            user
+            and user.is_authenticated
+            and (
+                user.is_superuser
+                or user.role in {"ADMIN", "MANAGEMENT"}
+            )
+        )
+
+
 class IsSupportStaffAllowed(IsAuthenticated):
     """CRM roles may view support tickets; Admin, Sales and Support may mutate them."""
     def has_permission(self, request, view):
@@ -889,20 +906,82 @@ class CategoryListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         organization = _require_organization(self.request)
-        queryset = Category.objects.filter(organization=organization)
-        include_inactive = str(self.request.query_params.get("includeInactive", "false")).lower() in {"true", "1", "yes"}
+
+        queryset = Category.objects.filter(
+            organization=organization
+        )
+
+        include_inactive = (
+            str(
+                self.request.query_params.get(
+                    "includeInactive", "false"
+                )
+            ).lower()
+            in {"true", "1", "yes"}
+        )
+
         if not include_inactive:
             queryset = queryset.filter(is_active=True)
-        search = self.request.query_params.get("search", "").strip()
+
+        search = self.request.query_params.get(
+            "search", ""
+        ).strip()
+
         if search:
             queryset = queryset.filter(name__icontains=search)
+
         return queryset.order_by("name")
 
-    def perform_create(self, serializer):
-        category = serializer.save(organization=_require_organization(self.request))
-        _record_api_audit(self.request, "CREATE", "Category", category.id, f"Created category '{category.name}'.")
+    def create(self, request, *args, **kwargs):
+        organization = _require_organization(request)
 
+        # Accept either one category object or a list of categories.
+        is_bulk = isinstance(request.data, list)
 
+        serializer = self.get_serializer(
+            data=request.data,
+            many=is_bulk,
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        if is_bulk:
+            # Save all categories in one database transaction.
+            from django.db import transaction
+
+            with transaction.atomic():
+                categories = serializer.save(
+                    organization=organization
+                )
+
+                for category in categories:
+                    _record_api_audit(
+                        request,
+                        "CREATE",
+                        "Category",
+                        category.id,
+                        f"Created category '{category.name}'.",
+                    )
+
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED,
+            )
+
+        category = serializer.save(organization=organization)
+
+        _record_api_audit(
+            request,
+            "CREATE",
+            "Category",
+            category.id,
+            f"Created category '{category.name}'.",
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED,
+        )
 class CategoryStatusView(APIView):
     permission_classes = [IsCatalogStaffAllowed]
 
@@ -913,7 +992,7 @@ class CategoryStatusView(APIView):
         if not isinstance(active, bool):
             raise ValidationError({"active": "Expected true or false."})
         if not active and category.products.filter(status="Active").exists():
-            # Keeping the category inactive is allowed; storefront queries will hide products under it.
+            # Keeping the category inactive is allowed; Crm queries will hide products under it.
             pass
         category.is_active = active
         category.save(update_fields=["is_active", "updated_at"])
@@ -923,48 +1002,122 @@ class CategoryStatusView(APIView):
 
 class ProductListCreateView(generics.ListCreateAPIView):
     serializer_class = ProductSerializer
-    permission_classes = [IsCatalogStaffAllowed]
+    permission_classes = [IsProductPublicReadManagementWrite]
+    queryset = Product.objects.all()
 
     def get_queryset(self):
+        # Public callers receive only published products from the configured
+        # storefront organization. Management receives its own full catalogue.
+        user = self.request.user
+        is_management = bool(
+            user
+            and user.is_authenticated
+            and (user.is_superuser or user.role in {"ADMIN", "MANAGEMENT"})
+        )
+        if not is_management:
+            return _public_product_queryset(self.request)
+
         organization = _require_organization(self.request)
-        queryset = Product.objects.filter(organization=organization).select_related("category")
-        include_inactive = str(self.request.query_params.get("includeInactive", "false")).lower() in {"true", "1", "yes"}
-        if not include_inactive:
-            queryset = queryset.filter(status="Active", category__is_active=True)
+
+        queryset = (
+            Product.objects
+            .filter(organization=organization)
+            .select_related("category")
+        )
+
         status_filter = self.request.query_params.get("status", "All")
         if status_filter and status_filter != "All":
             queryset = queryset.filter(status=status_filter)
+
         category_filter = self.request.query_params.get("category", "All")
         if category_filter and category_filter != "All":
-            queryset = queryset.filter(category__name__iexact=category_filter)
+            queryset = queryset.filter(
+                category__name__iexact=category_filter
+            )
+
         search = self.request.query_params.get("search", "").strip()
         if search:
             queryset = queryset.filter(
-                DjangoQ(name__icontains=search) | DjangoQ(sku__icontains=search)
-                | DjangoQ(brand__icontains=search) | DjangoQ(category__name__icontains=search)
+                DjangoQ(name__icontains=search)
+                | DjangoQ(sku__icontains=search)
+                | DjangoQ(brand__icontains=search)
+                | DjangoQ(category__name__icontains=search)
             )
+
         return queryset.order_by("name")
+
+    def get_serializer(self, *args, **kwargs):
+        if isinstance(self.request.data, list):
+            kwargs["many"] = True
+        return super().get_serializer(*args, **kwargs)
 
     def perform_create(self, serializer):
         organization = _require_organization(self.request)
-        product = serializer.save(organization=organization)
-        if product.stock > 0:
-            _StockMovement.objects.create(
-                organization=organization, product=product, actor=self.request.user,
-                movement_type="RESTOCK", quantity_delta=product.stock,
-                stock_before=0, stock_after=product.stock,
-                reason="Opening stock recorded when product was created.",
-            )
-        _record_api_audit(self.request, "CREATE", "Product", product.id, f"Created product '{product.name}' ({product.sku}).")
 
+        with transaction.atomic():
+            products = serializer.save(organization=organization)
+
+            if not isinstance(products, list):
+                products = [products]
+
+            for product in products:
+                if product.stock > 0:
+                    _StockMovement.objects.create(
+                        organization=organization,
+                        product=product,
+                        actor=self.request.user,
+                        movement_type="RESTOCK",
+                        quantity_delta=product.stock,
+                        stock_before=0,
+                        stock_after=product.stock,
+                        reason="Opening stock recorded when product was created.",
+                    )
+
+                _record_api_audit(
+                    self.request,
+                    "CREATE",
+                    "Product",
+                    product.id,
+                    f"Created product '{product.name}'.",
+                )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        self.perform_create(serializer)
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED,
+            headers=headers,
+        )
+
+class PublicProductListView(generics.ListAPIView):
+    serializer_class = ProductSerializer
+    permission_classes = [IsPublicProductReadOnly]
+
+    def get_queryset(self):
+        return _public_product_queryset(self.request)
 
 class ProductDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = ProductSerializer
-    permission_classes = [IsCatalogStaffAllowed]
+    permission_classes = [IsProductPublicReadManagementWrite]
     lookup_field = "pk"
 
     def get_queryset(self):
-        return Product.objects.filter(organization=_require_organization(self.request)).select_related("category")
+        user = self.request.user
+        is_management = bool(
+            user
+            and user.is_authenticated
+            and (user.is_superuser or  user.role in {"ADMIN", "MANAGEMENT"})
+        )
+        if is_management:
+            return Product.objects.filter(
+                organization=_require_organization(self.request)
+            ).select_related("category")
+        return _public_product_queryset(self.request)
 
     def perform_update(self, serializer):
         previous_stock = serializer.instance.stock
@@ -980,7 +1133,7 @@ class ProductDetailView(generics.RetrieveUpdateAPIView):
 
 
 class ProductStatusView(APIView):
-    permission_classes = [IsCatalogStaffAllowed]
+    permission_classes = [IsProductPublicReadManagementWrite]
 
     def patch(self, request, pk):
         organization = _require_organization(request)
@@ -998,7 +1151,7 @@ class ProductStatusView(APIView):
 
 
 def _public_store_organization_id(request):
-    """Scope public storefront reads to one configured organization, never a client-selected tenant."""
+    """Scope public storefront reads to one configured organization."""
     configured = getattr(django_settings, "STOREFRONT_ORGANIZATION_ID", None)
     if configured and str(configured).isdigit():
         return int(configured)
@@ -1006,7 +1159,31 @@ def _public_store_organization_id(request):
     return Category.objects.order_by("organization_id").values_list("organization_id", flat=True).first()
 
 
-class StorefrontCategoryListView(APIView):
+def _public_product_queryset(request):
+    """Return only published products from the configured public organization."""
+    queryset = Product.objects.filter(
+        status="Active",
+        category__is_active=True,
+    ).select_related("category")
+    organization_id = _public_store_organization_id(request)
+    queryset = queryset.filter(organization_id=organization_id) if organization_id else queryset.none()
+
+    search = request.query_params.get("search", "").strip()
+    if search:
+        queryset = queryset.filter(
+            DjangoQ(name__icontains=search)
+            | DjangoQ(brand__icontains=search)
+            | DjangoQ(category__name__icontains=search)
+        )
+
+    category = request.query_params.get("category", "").strip()
+    if category and category != "All":
+        queryset = queryset.filter(category__name__iexact=category)
+
+    return queryset.order_by("name")
+
+
+class CrmCategoryListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
@@ -1018,24 +1195,12 @@ class StorefrontCategoryListView(APIView):
         return Response(data)
 
 
-class StorefrontProductListView(APIView):
+class CrmProductListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
         # Public route can only return published items from active categories.
-        queryset = Product.objects.filter(status="Active", category__is_active=True).select_related("category")
-        organization_id = _public_store_organization_id(request)
-        queryset = queryset.filter(organization_id=organization_id) if organization_id else queryset.none()
-        search = request.query_params.get("search", "").strip()
-        if search:
-            queryset = queryset.filter(
-                DjangoQ(name__icontains=search) | DjangoQ(brand__icontains=search)
-                | DjangoQ(category__name__icontains=search)
-            )
-        category_filter = request.query_params.get("category", "All")
-        if category_filter and category_filter != "All":
-            queryset = queryset.filter(category__name__iexact=category_filter)
-        return Response(ProductSerializer(queryset.order_by("name"), many=True).data)
+        return Response(ProductSerializer(_public_product_queryset(request), many=True).data)
 
 
 class SupportTicketListCreateView(generics.ListCreateAPIView):
@@ -1413,13 +1578,13 @@ class HomepagePromotionSettingsView(APIView):
         return Response(_HomepagePromotionSettingsSerializer(saved, context={"request": request}).data)
 
 
-class StorefrontBannerListView(APIView):
+class CrmBannerListView(APIView):
     permission_classes = [_AllowAny]
 
     def get(self, request):
         organization_id = _public_store_organization_id(request)
-        # Banner start/end dates are selected in the India-based storefront UI.
-        # Use the storefront's local calendar date rather than the server's UTC date.
+        # Banner start/end dates are selected in the India-based Crm UI.
+        # Use the Crm's local calendar date rather than the server's UTC date.
         today = timezone.localdate(timezone=ZoneInfo("Asia/Kolkata"))
         queryset = _Banner.objects.filter(status="Active", start_date__lte=today, end_date__gte=today)
         queryset = queryset.filter(organization_id=organization_id) if organization_id else queryset.none()
@@ -1428,7 +1593,7 @@ class StorefrontBannerListView(APIView):
         return Response(_BannerSerializer(queryset.order_by("-created_at"), many=True).data)
 
 
-class StorefrontBannerMetricView(APIView):
+class CrmBannerMetricView(APIView):
     permission_classes = [_AllowAny]
 
     def post(self, request, pk, metric):
@@ -1446,7 +1611,7 @@ class StorefrontBannerMetricView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class StorefrontHomepagePromotionSettingsView(APIView):
+class CrmHomepagePromotionSettingsView(APIView):
     permission_classes = [_AllowAny]
 
     def get(self, request):
@@ -1458,14 +1623,14 @@ class StorefrontHomepagePromotionSettingsView(APIView):
         return Response(data)
 
 # ---------------------------------------------------------------------------
-# Phase 23 — Storefront settings, communications and notifications APIs
+# Phase 23 — Crm settings, communications and notifications APIs
 # ---------------------------------------------------------------------------
 
 from django.utils.dateparse import parse_datetime as _parse_datetime
 from rest_framework.exceptions import ValidationError as _ValidationError
 from accounts.permissions import IsAdmin as _IsAdmin
 from .models import (
-    StorefrontSettings as _StorefrontSettings,
+    CrmSettings as _CrmSettings,
     CommunicationTemplate as _CommunicationTemplate,
     CommunicationLog as _CommunicationLog,
     Notification as _Notification,
@@ -1493,13 +1658,13 @@ class _IsCommunicationStaffAllowed(IsAuthenticated):
         return user.role in self.write_roles and request.method in {"POST", "PUT", "PATCH", "DELETE"}
 
 
-class StorefrontSettingsView(APIView):
+class CrmSettingsView(APIView):
     """Protected CRUD for the current organization's public-store settings."""
     permission_classes = [IsAuthenticated, _IsAdmin]
 
     def get(self, request):
         organization = _require_organization(request)
-        record = _StorefrontSettings.objects.filter(organization=organization).first()
+        record = _CrmSettings.objects.filter(organization=organization).first()
         return Response(record.data if record and isinstance(record.data, dict) else {})
 
     def put(self, request):
@@ -1512,26 +1677,26 @@ class StorefrontSettingsView(APIView):
         organization = _require_organization(request)
         payload = request.data
         if not isinstance(payload, dict):
-            raise _ValidationError({"detail": "Storefront settings must be a JSON object."})
+            raise _ValidationError({"detail": "Crm settings must be a JSON object."})
         if len(str(payload)) > 1_800_000:
             raise _ValidationError({"detail": "Settings payload is too large. Store the logo in media storage instead of embedding a large image."})
-        existing = _StorefrontSettings.objects.filter(organization=organization).first()
+        existing = _CrmSettings.objects.filter(organization=organization).first()
         if request.method == "PATCH" and existing:
             payload = {**(existing.data or {}), **payload}
-        record, _ = _StorefrontSettings.objects.update_or_create(
+        record, _ = _CrmSettings.objects.update_or_create(
             organization=organization,
             defaults={"data": payload, "updated_by": request.user},
         )
-        _record_api_audit(request, "UPDATE", "StorefrontSettings", record.pk, "Updated storefront settings.")
+        _record_api_audit(request, "UPDATE", "CrmSettings", record.pk, "Updated Crm settings.")
         return Response(record.data)
 
 
-class StorefrontPublicSettingsView(APIView):
+class CrmPublicSettingsView(APIView):
     permission_classes = [_AllowAny]
 
     def get(self, request):
         organization_id = _public_store_organization_id(request)
-        record = _StorefrontSettings.objects.filter(organization_id=organization_id).first() if organization_id else None
+        record = _CrmSettings.objects.filter(organization_id=organization_id).first() if organization_id else None
         return Response(record.data if record and isinstance(record.data, dict) else {})
 
 
@@ -1763,7 +1928,7 @@ class NotificationReadAllView(APIView):
         return Response({"markedRead": len(visible)})
 
 # ---------------------------------------------------------------------------
-# Phase 24 — pseudonymous storefront behaviour APIs
+# Phase 24 — pseudonymous Crm behaviour APIs
 # ---------------------------------------------------------------------------
 
 from collections import defaultdict as _defaultdict
@@ -1773,15 +1938,15 @@ from .models import CustomerBehaviorEvent as _CustomerBehaviorEvent, Product as 
 from .serializers import CustomerBehaviorEventInputSerializer as _CustomerBehaviorEventInputSerializer, ProductSerializer as _ProductSerializer
 
 
-class StorefrontBehaviorEventView(APIView):
-    """Public ingestion of scrubbed, pseudonymous storefront interaction events."""
+class CrmBehaviorEventView(APIView):
+    """Public ingestion of scrubbed, pseudonymous Crm interaction events."""
     permission_classes = [_AllowAny]
 
     def post(self, request):
         organization_id = _public_store_organization_id(request)
         if not organization_id:
             return Response(
-                {"detail": "The public storefront organization is not configured yet. Add an active category/product first."},
+                {"detail": "The public Crm organization is not configured yet. Add an active category/product first."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -1932,7 +2097,7 @@ def _summarize_behavior_events(events, days):
     }
 
 
-class StorefrontRecommendationsView(APIView):
+class CrmRecommendationsView(APIView):
     """Public, aggregate popularity/behaviour based product recommendations."""
     permission_classes = [_AllowAny]
 
@@ -1981,7 +2146,7 @@ class StorefrontRecommendationsView(APIView):
         has_behaviour = any(any(score.values()) for score in scores.values())
         return Response({
             "items": result,
-            "source": "storefront-behaviour" if has_behaviour else "catalogue-popularity-fallback",
+            "source": "Crm-behaviour" if has_behaviour else "catalogue-popularity-fallback",
             "periodDays": 30,
             "eventCount": event_count,
             "personalized": False,
@@ -1989,16 +2154,16 @@ class StorefrontRecommendationsView(APIView):
 
 
 # ---------------------------------------------------------------------------
-# Phase 25 — persistent storefront cart/wishlist and moderated reviews
+# Phase 25 — persistent Crm cart/wishlist and moderated reviews
 # ---------------------------------------------------------------------------
-from .models import StorefrontCart as _StorefrontCart, StorefrontCartItem as _StorefrontCartItem
-from .models import StorefrontWishlistItem as _StorefrontWishlistItem, ProductReview as _ProductReview
+from .models import CrmCart as _CrmCart, CrmCartItem as _CrmCartItem
+from .models import CrmWishlistItem as _CrmWishlistItem, ProductReview as _ProductReview
 from .serializers import (
-    StorefrontCartSyncSerializer as _StorefrontCartSyncSerializer,
-    StorefrontWishlistSyncSerializer as _StorefrontWishlistSyncSerializer,
-    StorefrontProductReviewCreateSerializer as _StorefrontProductReviewCreateSerializer,
-    StorefrontProductReviewSerializer as _StorefrontProductReviewSerializer,
-    CRMProductReviewSerializer as _CRMProductReviewSerializer,
+    CrmCartSyncSerializer as _CrmCartSyncSerializer,
+    CrmWishlistSyncSerializer as _CrmWishlistSyncSerializer,
+    CrmProductReviewCreateSerializer as _CrmProductReviewCreateSerializer,
+    CrmProductReviewSerializer as _CrmProductReviewSerializer,
+    CrmProductReviewSerializer as _CRMProductReviewSerializer,
 )
 from django.db.models import Avg as _Phase25Avg, Count as _Phase25Count
 
@@ -2011,7 +2176,7 @@ def _phase25_visitor_id(value):
     return value
 
 
-def _phase25_storefront_org(request):
+def _phase25_Crm_org(request):
     organization_id = _public_store_organization_id(request)
     if not organization_id:
         return None
@@ -2031,22 +2196,25 @@ def _phase25_cart_payload(cart):
     return {"visitorId": cart.visitor_id, "items": rows, "updatedAt": cart.updated_at.isoformat()}
 
 
-class StorefrontCartView(APIView):
-    permission_classes = [_AllowAny]
+class CrmCartView(APIView):
+    permission_classes = [
+        IsAuthenticated,
+        IsCustomer,
+    ]
 
     def get(self, request):
-        organization_id = _phase25_storefront_org(request)
+        organization_id = _phase25_Crm_org(request)
         if not organization_id:
-            return Response({"items": [], "detail": "The storefront organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response({"items": [], "detail": "The Crm organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         visitor_id = _phase25_visitor_id(request.query_params.get("visitor_id"))
-        cart, _ = _StorefrontCart.objects.get_or_create(organization_id=organization_id, visitor_id=visitor_id)
+        cart, _ = _CrmCart.objects.get_or_create(organization_id=organization_id, visitor_id=visitor_id)
         return Response(_phase25_cart_payload(cart))
 
     def put(self, request):
-        organization_id = _phase25_storefront_org(request)
+        organization_id = _phase25_Crm_org(request)
         if not organization_id:
-            return Response({"detail": "The storefront organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        serializer = _StorefrontCartSyncSerializer(data=request.data)
+            return Response({"detail": "The Crm organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        serializer = _CrmCartSyncSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         visitor_id = serializer.validated_data["visitor_id"]
         requested_items = serializer.validated_data["items"]
@@ -2062,10 +2230,10 @@ class StorefrontCartView(APIView):
             if product.stock < row["quantity"]:
                 raise ValidationError({"items": f"Only {product.stock} unit(s) of {product.name} are in stock."})
         with transaction.atomic():
-            cart, _ = _StorefrontCart.objects.select_for_update().get_or_create(organization_id=organization_id, visitor_id=visitor_id)
+            cart, _ = _CrmCart.objects.select_for_update().get_or_create(organization_id=organization_id, visitor_id=visitor_id)
             cart.items.all().delete()
-            _StorefrontCartItem.objects.bulk_create([
-                _StorefrontCartItem(cart=cart, product=products[row["product_id"]], quantity=row["quantity"])
+            _CrmCartItem.objects.bulk_create([
+                _CrmCartItem(cart=cart, product=products[row["product_id"]], quantity=row["quantity"])
                 for row in requested_items
             ])
             cart.save(update_fields=["updated_at"])
@@ -2073,45 +2241,45 @@ class StorefrontCartView(APIView):
         return Response(_phase25_cart_payload(cart))
 
     def delete(self, request):
-        organization_id = _phase25_storefront_org(request)
+        organization_id = _phase25_Crm_org(request)
         if not organization_id:
             return Response(status=status.HTTP_204_NO_CONTENT)
         visitor_id = _phase25_visitor_id(request.query_params.get("visitor_id"))
-        _StorefrontCart.objects.filter(organization_id=organization_id, visitor_id=visitor_id).delete()
+        _CrmCart.objects.filter(organization_id=organization_id, visitor_id=visitor_id).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class StorefrontWishlistView(APIView):
+class CrmWishlistView(APIView):
     permission_classes = [_AllowAny]
 
     def _payload(self, organization_id, visitor_id):
-        items = list(_StorefrontWishlistItem.objects.filter(
+        items = list(_CrmWishlistItem.objects.filter(
             organization_id=organization_id, visitor_id=visitor_id, product__status="Active", product__category__is_active=True
         ).select_related("product", "product__category"))
         return {"visitorId": visitor_id, "productIds": [item.product_id for item in items], "items": _ProductSerializer([item.product for item in items], many=True).data}
 
     def get(self, request):
-        organization_id = _phase25_storefront_org(request)
+        organization_id = _phase25_Crm_org(request)
         if not organization_id:
             return Response({"productIds": [], "items": []}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         visitor_id = _phase25_visitor_id(request.query_params.get("visitor_id"))
         return Response(self._payload(organization_id, visitor_id))
 
     def put(self, request):
-        organization_id = _phase25_storefront_org(request)
+        organization_id = _phase25_Crm_org(request)
         if not organization_id:
-            return Response({"detail": "The storefront organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        serializer = _StorefrontWishlistSyncSerializer(data=request.data)
+            return Response({"detail": "The Crm organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        serializer = _CrmWishlistSyncSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         visitor_id = serializer.validated_data["visitor_id"]
         product_ids = serializer.validated_data["product_ids"]
         products = list(_Product.objects.filter(organization_id=organization_id, status="Active", category__is_active=True, pk__in=product_ids).select_related("category"))
         if len(products) != len(product_ids):
-            raise ValidationError({"product_ids": "One or more products are unavailable or belong to another storefront."})
+            raise ValidationError({"product_ids": "One or more products are unavailable or belong to another Crm."})
         with transaction.atomic():
-            _StorefrontWishlistItem.objects.filter(organization_id=organization_id, visitor_id=visitor_id).delete()
-            _StorefrontWishlistItem.objects.bulk_create([
-                _StorefrontWishlistItem(organization_id=organization_id, visitor_id=visitor_id, product=product)
+            _CrmWishlistItem.objects.filter(organization_id=organization_id, visitor_id=visitor_id).delete()
+            _CrmWishlistItem.objects.bulk_create([
+                _CrmWishlistItem(organization_id=organization_id, visitor_id=visitor_id, product=product)
                 for product in products
             ])
         return Response(self._payload(organization_id, visitor_id))
@@ -2126,27 +2294,27 @@ def _phase25_recalculate_product_rating(product):
     product.save(update_fields=["rating", "reviews", "updated_at"])
 
 
-class StorefrontProductReviewsView(APIView):
+class CrmProductReviewsView(APIView):
     permission_classes = [_AllowAny]
 
     def get(self, request, product_id):
-        organization_id = _phase25_storefront_org(request)
+        organization_id = _phase25_Crm_org(request)
         if not organization_id:
             return Response({"items": [], "summary": {"rating": 0, "count": 0}}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         product = get_object_or_404(_Product.objects.select_related("category"), pk=product_id, organization_id=organization_id, status="Active", category__is_active=True)
         queryset = _ProductReview.objects.filter(product=product, status=_ProductReview.ReviewStatus.APPROVED)
         summary = queryset.aggregate(average=_Phase25Avg("rating"), count=_Phase25Count("id"))
         return Response({
-            "items": _StorefrontProductReviewSerializer(queryset[:100], many=True).data,
+            "items": _CrmProductReviewSerializer(queryset[:100], many=True).data,
             "summary": {"rating": round(float(summary["average"] or 0), 2), "count": int(summary["count"] or 0)},
         })
 
     def post(self, request, product_id):
-        organization_id = _phase25_storefront_org(request)
+        organization_id = _phase25_Crm_org(request)
         if not organization_id:
-            return Response({"detail": "The storefront organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response({"detail": "The Crm organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         product = get_object_or_404(_Product.objects.select_related("category"), pk=product_id, organization_id=organization_id, status="Active", category__is_active=True)
-        serializer = _StorefrontProductReviewCreateSerializer(data=request.data)
+        serializer = _CrmProductReviewCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         if _ProductReview.objects.filter(organization_id=organization_id, product=product, visitor_id=data["visitor_id"]).exists():
@@ -2220,7 +2388,7 @@ from rest_framework.permissions import AllowAny as _AllowAny
 from .models import (
     StockMovement as _StockMovement,
     DiscountCoupon as _DiscountCoupon,
-    StorefrontCart as _StorefrontCart,
+    CrmCart as _CrmCart,
 )
 from .serializers import (
     StockMovementSerializer as _StockMovementSerializer,
@@ -2357,13 +2525,13 @@ class  DiscountCouponDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class  StorefrontCouponValidationView(APIView):
+class  CrmCouponValidationView(APIView):
     permission_classes = [_AllowAny]
 
     def post(self, request):
-        organization_id = _phase25_storefront_org(request)
+        organization_id = _phase25_Crm_org(request)
         if not organization_id:
-            return Response({"valid": False, "detail": "The storefront organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response({"valid": False, "detail": "The Crm organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         visitor_id = _phase25_visitor_id(request.data.get("visitor_id"))
         code = str(request.data.get("code") or "").strip().upper()
         if not code or len(code) > 32:
@@ -2380,7 +2548,7 @@ class  StorefrontCouponValidationView(APIView):
             return Response({"valid": False, "detail": "This coupon has expired."})
         if coupon.usage_limit is not None and coupon.used_count >= coupon.usage_limit:
             return Response({"valid": False, "detail": "This coupon has reached its usage limit."})
-        cart = _StorefrontCart.objects.filter(
+        cart = _CrmCart.objects.filter(
             organization_id=organization_id, visitor_id=visitor_id
         ).prefetch_related("items__product").first()
         if not cart or not cart.items.exists():
@@ -2421,7 +2589,7 @@ class AbandonedCartListView(APIView):
             raise ValidationError({"min_age_hours": "Use a whole number between 1 and 720."})
         min_age_hours = max(1, min(720, min_age_hours))
         cutoff = timezone.now() - _Timedelta(hours=min_age_hours)
-        carts = _StorefrontCart.objects.filter(
+        carts = _CrmCart.objects.filter(
             organization=organization, updated_at__lt=cutoff, items__isnull=False
         ).distinct().prefetch_related("items__product").order_by("-updated_at")[:250]
         rows = []
@@ -2651,3 +2819,27 @@ class OrderActivityListCreateView(generics.ListCreateAPIView):
         if order.organization_id != organization.id:
             raise PermissionDenied("Order does not belong to your organization.")
         serializer.save(organization=organization, created_by=user)
+
+
+# Central public interface for active storefront-account and customer-profile
+# views.  All configured CRM URLs import their views from this module.
+from .customer_profile_views import (  # noqa: E402
+    CustomerProfileImageView,
+    CustomerProfileOverviewView,
+    StorefrontCustomerProfileImageView,
+)
+from .storefront_account_views import (  # noqa: E402
+    IsStorefrontCustomer,
+    StorefrontAddressDetailView,
+    StorefrontAddressListCreateView,
+    StorefrontCustomerProfileView,
+    StorefrontCustomerSummaryView,
+    StorefrontLegacyOrderImportView,
+    StorefrontLegacySupportTicketImportView,
+    StorefrontOrderDetailView,
+    StorefrontOrderListCreateView,
+    StorefrontSavedPaymentMethodDetailView,
+    StorefrontSavedPaymentMethodListCreateView,
+    StorefrontSupportTicketDetailView,
+    StorefrontSupportTicketListCreateView,
+)

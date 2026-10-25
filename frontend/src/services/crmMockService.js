@@ -887,7 +887,13 @@ function normaliseLeadInput(input = {}, existing = {}) {
 }
 
 function withLeadDefaults(lead) {
-  return { followUps: [], statusHistory: [], ...lead, followUps: Array.isArray(lead.followUps) ? lead.followUps : [], statusHistory: Array.isArray(lead.statusHistory) ? lead.statusHistory : [] };
+  return {
+    ...lead,
+    followUps: Array.isArray(lead.followUps) ? lead.followUps : [],
+    statusHistory: Array.isArray(lead.statusHistory)
+      ? lead.statusHistory
+      : [],
+  };
 }
 
 export async function getLeads({ search = "", status = "All", source = "All", assignedTo = "All", from = "", to = "" } = {}) {

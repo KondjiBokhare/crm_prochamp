@@ -72,7 +72,7 @@ export async function authJsonRequest(path, { method = "GET", body, accessToken,
 }
 
 export async function authBlobRequest(path, { accessToken, signal } = {}) {
-  const headers = { Accept: "image/*" };
+ const headers = { Accept: "*/*" };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   let response;
   try {

@@ -142,34 +142,6 @@ function Products() {
   const productsPerPage = 12;
 
 
-  // =========================================
-  // PRICE RANGE
-  // =========================================
-
-  const allProductPrices = useMemo(() => {
-
-    return products
-      .map((product) => Number(product.price))
-      .filter((price) => !Number.isNaN(price));
-
-  }, [products]);
-
-
-  const minimumProductPrice =
-    allProductPrices.length > 0
-      ? Math.min(
-          ...allProductPrices
-        )
-      : 0;
-
-
-  const maximumProductPrice =
-    allProductPrices.length > 0
-      ? Math.max(
-          ...allProductPrices
-        )
-      : 0;
-
 
   // =========================================
   // SEARCH / CATEGORY BASE PRODUCTS

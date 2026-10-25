@@ -1,15 +1,44 @@
-# ============================================================
-# Django REST Framework imports
-# ============================================================
+"""Role permissions and the public account-API access matrix.
+
+Basic role permissions are deliberately single-role.  An accounts view that
+needs an Admin uses ``IsAdmin``; it never silently grants another staff role
+the same access.
+"""
 
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
-
-# ============================================================
-# Shared role definitions
-# ============================================================
-
 ADMIN_ROLE = "ADMIN"
+CUSTOMER_ROLE = "CUSTOMER"
+
+
+# Authoritative contract exposed by GET /api/auth/role-access/.
+ACCOUNT_ROLE_ACCESS = {
+    "SUPER_ADMIN": {
+        "allowed": [
+            "GET /api/auth/me/",
+            "GET /api/auth/role-access/",
+            "GET, POST /api/auth/organizations/",
+            "GET, POST /api/auth/staff/",
+            "GET, PUT, PATCH /api/auth/staff/{id}/",
+            "GET /api/crm/audit-logs/",
+        ],
+    },
+    "ADMIN": {
+        "allowed": [
+            "GET /api/auth/me/",
+            "GET /api/auth/role-access/",
+            "GET /api/auth/staff/ (own organization)",
+            "GET, PUT, PATCH /api/auth/staff/{id}/ (own organization; not own role)",
+        ],
+    },
+    "CUSTOMER": {"allowed": ["GET /api/auth/me/", "GET /api/auth/role-access/"]},
+    "SALES": {"allowed": ["GET /api/auth/me/", "GET /api/auth/role-access/"]},
+    "MARKETING": {"allowed": ["GET /api/auth/me/", "GET /api/auth/role-access/"]},
+    "SUPPORT": {"allowed": ["GET /api/auth/me/", "GET /api/auth/role-access/"]},
+    "OPERATIONS": {"allowed": ["GET /api/auth/me/", "GET /api/auth/role-access/"]},
+    "MANAGEMENT": {"allowed": ["GET /api/auth/me/", "GET /api/auth/role-access/"]},
+    "ANALYST": {"allowed": ["GET /api/auth/me/", "GET /api/auth/role-access/"]},
+}
 
 CRM_READ_ROLES = {
     "SALES",
@@ -21,11 +50,7 @@ CRM_READ_ROLES = {
 
 CRM_WRITE_METHODS = {"POST", "PUT", "PATCH"}
 
-
-# ============================================================
 # Base role permission
-# ============================================================
-
 class HasRole(BasePermission):
     """Allow authenticated users with specified roles."""
 
@@ -37,19 +62,48 @@ class HasRole(BasePermission):
         return bool(
             user
             and user.is_authenticated
+            and user.role in self.allowed_roles
+        )
+
+
+class IsSuperAdmin(BasePermission):
+    """Allow only a Django superuser to perform global operations."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.is_superuser)
+
+
+class IsSuperAdminOrOrganizationAdmin(BasePermission):
+    """Allow a superadmin or an Admin assigned to an organization."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
             and (
                 user.is_superuser
-                or user.role in self.allowed_roles
+                or (
+                    user.role == ADMIN_ROLE
+                    and user.organization_id is not None
+                )
             )
         )
 
 
-# ============================================================
-# Single-role and combined-role permissions
-# ============================================================
+# Single-role permissions for accounts APIs
 
 class IsAdmin(HasRole):
     allowed_roles = ("ADMIN",)
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and (user.is_superuser or user.role == ADMIN_ROLE)
+        )
 
 
 class IsSales(HasRole):
@@ -64,29 +118,30 @@ class IsSupport(HasRole):
     allowed_roles = ("SUPPORT",)
 
 
+class IsOperations(HasRole):
+    allowed_roles = ("OPERATIONS",)
+
+
+class IsManagement(HasRole):
+    allowed_roles = ("MANAGEMENT",)
+
+
+class IsAnalyst(HasRole):
+    allowed_roles = ("ANALYST",)
+
+
+# These are legacy CRM policies. They are not used by any accounts API.
+# CRM will be moved to its own role policy module separately so this app can
+# eventually expose only the single-role permissions above.
 class IsAdminOrManagement(HasRole):
     allowed_roles = ("ADMIN", "MANAGEMENT")
-
-
-class IsSalesOrAdmin(HasRole):
-    allowed_roles = ("ADMIN", "SALES")
 
 
 class IsMarketingOrAdmin(HasRole):
     allowed_roles = ("ADMIN", "MARKETING")
 
 
-class IsSupportOrAdmin(HasRole):
-    allowed_roles = ("ADMIN", "SUPPORT")
-
-
-class IsManagementOrAdmin(HasRole):
-    allowed_roles = ("ADMIN", "MANAGEMENT")
-
-
-# ============================================================
 # Admin and read-only permissions
-# ============================================================
 
 class IsAdminOrReadOnly(BasePermission):
     """Admin has full access; other authenticated users can read."""
@@ -134,11 +189,7 @@ class IsSupportReadOnlyOrAdmin(IsAdminOrRoleReadOnly):
 class IsCRMRoleOrAdminReadOnly(IsAdminOrRoleReadOnly):
     allowed_read_roles = CRM_READ_ROLES
 
-
-# ============================================================
 # Shared read/write permission base
-# ============================================================
-
 class CRMReadWritePermission(BasePermission):
     """
     Admin: full access.
@@ -170,10 +221,7 @@ class CRMReadWritePermission(BasePermission):
         )
 
 
-# ============================================================
 # CRM resource-specific permissions
-# ============================================================
-
 class IsSalesWriteOrSupportReadOnly(CRMReadWritePermission):
     """
     Sales: create and update.
@@ -212,3 +260,56 @@ class IsCampaignAllowed(CRMReadWritePermission):
     """
 
     write_roles = {"MARKETING"}
+
+
+class IsCustomer(HasRole):
+    """Allow customers and superusers."""
+    allowed_roles = (CUSTOMER_ROLE,)
+
+
+class IsCustomerOwnerOrAdmin(BasePermission):
+    """
+    Allow customers to access their own objects.
+    Administrators and superusers can access any object.
+
+    Requires the object to have a `user` attribute
+    referencing its owner.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        return bool(user and user.is_authenticated)
+
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+
+        if user.is_superuser or user.role == ADMIN_ROLE:
+            return True
+
+        return (
+            user.role == CUSTOMER_ROLE
+            and getattr(obj, "user_id", None) == user.id
+        )
+
+
+class IsPublicProductReadOnly(BasePermission):
+    """
+    Anyone can read public storefront resources.
+    Only authenticated, authorized users can write.
+    """
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+
+        user = request.user
+
+        return bool(
+            user
+            and user.is_authenticated
+            and (
+                user.is_superuser
+                or user.role == ADMIN_ROLE
+            )
+        )

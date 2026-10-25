@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Package, Heart, Star, Crown, Camera } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { isStorefrontAccountApiEnabled } from "../../services/storefrontAccountApiService";
+
+import { useWishlist } from "../../context/WishlistContext";
+import {
+  getCustomerSummary,
+  isStorefrontAccountApiEnabled,
+} from "../../services/storefrontAccountApiService";
+import { getStorefrontVisitorId } from "../../services/storefrontCommerceApiService";
+
 
 function ProfileHeader() {
   const { user, authenticatedRequest, authenticatedBlobRequest } = useAuth();
@@ -11,8 +18,68 @@ function ProfileHeader() {
   const [photoMessage, setPhotoMessage] = useState("");
   const [uploading, setUploading] = useState(false);
   const [photoVersion, setPhotoVersion] = useState(0);
+  const [summary, setSummary] = useState({
+    totalOrders: null,
+    averageRating: null,
+    memberTier: "",
+  });
+
   const inputRef = useRef(null);
   const canManagePhoto = user?.role === "CUSTOMER" && isStorefrontAccountApiEnabled;
+
+  useEffect(() => {
+  if (
+    !canManagePhoto ||
+    typeof authenticatedRequest !== "function"
+  ) {
+    return undefined;
+  }
+
+  let active = true;
+
+  getCustomerSummary(
+    getStorefrontVisitorId(),
+    authenticatedRequest
+  )
+    .then((result) => {
+      if (!active) return;
+
+      const totalOrders = Number(result?.totalOrders);
+      const rating =
+        result?.averageRating == null
+          ? null
+          : Number(result.averageRating);
+
+      setSummary({
+        totalOrders: Number.isFinite(totalOrders)
+          ? totalOrders
+          : 0,
+        averageRating:
+          rating !== null && Number.isFinite(rating)
+            ? rating
+            : null,
+        memberTier: String(
+          result?.memberTier || "New Member"
+        ),
+      });
+    })
+    .catch((error) => {
+      if (active) {
+        console.error(
+          "Could not load customer summary:",
+          error
+        );
+      }
+    });
+
+  return () => {
+    active = false;
+  };
+}, [
+  authenticatedRequest,
+  canManagePhoto,
+  user?.id,
+]);
 
   useEffect(() => {
     let active = true;
@@ -42,6 +109,10 @@ function ProfileHeader() {
     inputRef.current?.click();
   }, []);
 
+  const { wishlistCount } = useWishlist();
+
+
+
   async function uploadPhoto(event) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -70,11 +141,34 @@ function ProfileHeader() {
   }
 
   const stats = [
-    { label: "Total Orders", value: "—", icon: Package, className: "blue" },
-    { label: "Wishlist Items", value: "—", icon: Heart, className: "red" },
-    { label: "Avg. Rating", value: "—", icon: Star, className: "orange" },
-    { label: "Member Tier", value: "—", icon: Crown, className: "purple" },
-  ];
+  {
+    label: "Total Orders",
+    value: summary.totalOrders ?? "—",
+    icon: Package,
+    className: "blue",
+  },
+  {
+    label: "Wishlist Items",
+    value: wishlistCount,
+    icon: Heart,
+    className: "red",
+  },
+  {
+    label: "Avg. Rating",
+    value:
+      summary.averageRating === null
+        ? "0"
+        : `${summary.averageRating.toFixed(1)}/5`,
+    icon: Star,
+    className: "orange",
+  },
+  {
+    label: "Member Tier",
+    value: summary.memberTier || "—",
+    icon: Crown,
+    className: "purple",
+  },
+];
 
   return (
     <section className="profile-header-card">

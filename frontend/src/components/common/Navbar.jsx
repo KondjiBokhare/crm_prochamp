@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 
 import {
   Search,
@@ -37,6 +37,7 @@ import StoreLogo from "./StoreLogo";
 
 function Navbar() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { user, isAuthenticated, authenticatedRequest } = useAuth();
 
@@ -244,8 +245,9 @@ const { wishlistCount } = useWishlist();
               <ChevronDown size={14} />
             </Link>
           ) : (
-            <Link
+           <Link
               to="/login"
+              state={{ backgroundLocation: location }}
               className="nav-action"
             >
               <User size={23} />

@@ -61,3 +61,21 @@ export async function deleteCustomerPaymentMethod(id, authenticatedRequest) {
   requireRequest(authenticatedRequest);
   return authenticatedRequest(`/api/storefront/account/payment-methods/${encodeURIComponent(id)}/`, { method: "DELETE" });
 }
+
+export async function getCustomerSummary(
+  visitorId,
+  authenticatedRequest
+) {
+  requireRequest(authenticatedRequest);
+
+  const id = String(visitorId || "").trim();
+
+  const query = id
+    ? `?visitor_id=${encodeURIComponent(id)}`
+    : "";
+
+  return authenticatedRequest(
+    `/api/storefront/account/summary/${query}`,
+    { method: "GET" }
+  );
+}

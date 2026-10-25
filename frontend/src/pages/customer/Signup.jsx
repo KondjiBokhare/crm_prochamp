@@ -1,20 +1,21 @@
-import { Link } from "react-router-dom";
+
 import {
   User,
   Mail,
   LockKeyhole,
   Eye,
   EyeOff,
-  
+
 } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../context/AuthContext";
 
+import { useAuth } from "../../context/AuthContext";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import AuthLayout from "../../components/auth/AuthLayout";
 
 function Signup() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { registerCustomerWithBackend, isStorefrontAuthEnabled } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -227,21 +228,27 @@ function Signup() {
 
         </form>
 
-        <div className="auth-divider">
+        {/* <div className="auth-divider">
           <span>OR</span>
         </div>
 
       <button className="google-button" type="button" disabled title="Google OAuth is not configured">
   <span className="google-g-icon">G</span>
   Google sign-up not configured
-</button>
+</button> */}
 
         <p className="auth-switch">
           Already have an account?
           {" "}
-          <Link to="/login">
-            Sign in
-          </Link>
+          <Link
+  to="/login"
+  state={{
+    backgroundLocation: location.state?.backgroundLocation,
+    from: location.state?.from,
+  }}
+>
+  Sign in
+</Link>
         </p>
 
       </div>

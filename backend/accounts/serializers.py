@@ -82,7 +82,6 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """Create the customer and related CRM records atomically."""
-        from crm.models import StorefrontCustomerProfile
         from crm.storefront_utils import (
             ensure_storefront_customer,
             get_storefront_organization,
@@ -94,9 +93,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         if organization is None:
             raise serializers.ValidationError({
                 "detail": (
-                    "The storefront CRM organization is not configured. "
-                    "Configure STOREFRONT_ORGANIZATION_ID or create a "
-                    "product category first."
+                    "The CRM organization is not configured. "
+                    "Set STOREFRONT_ORGANIZATION_ID or create "
+                    "a product category first."
                 )
             })
 
@@ -109,12 +108,10 @@ class RegisterSerializer(serializers.ModelSerializer):
                 **validated_data,
             )
 
-            StorefrontCustomerProfile.objects.create(user=user)
-
+            # Creates the CRM profile and customer record.
             ensure_storefront_customer(user, organization)
 
         return user
-
 
 # Authenticated user profile serializer
 class UserSerializer(serializers.ModelSerializer):
@@ -126,6 +123,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "email",
             "role",
+            "is_superuser",
             "is_active",
             "date_joined",
             "first_name",
@@ -135,6 +133,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "email",
             "role",
+            "is_superuser",
             "is_active",
             "date_joined",
             "first_name",
@@ -174,6 +173,12 @@ class StaffUserSerializer(serializers.ModelSerializer):
         required=True,
     )
 
+    organization = serializers.PrimaryKeyRelatedField(
+        queryset=Organization.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+
     # Accept the frontend's `active` field while storing `is_active`.
     active = serializers.BooleanField(
         source="is_active",
@@ -188,6 +193,7 @@ class StaffUserSerializer(serializers.ModelSerializer):
             "name",
             "email",
             "role",
+            "organization",
             "is_active",
             "active",
             "date_joined",
@@ -205,7 +211,7 @@ class StaffUserSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         """Normalize email and reject duplicate accounts."""
-        value = User.objects.normalize_email(value = value.strip().lower())
+        value = User.objects.normalize_email(value.strip().lower())
 
         existing_users = User.objects.filter(email__iexact=value)
 
@@ -236,9 +242,8 @@ class StaffUserSerializer(serializers.ModelSerializer):
         """Validate staff creation and protect administrator accounts."""
         request = self.context.get("request")
 
-        # --------------------------------------------------------
+
         # Creating a new staff account
-        # --------------------------------------------------------
 
         if self.instance is None:
             if not attrs.get("name", "").strip():
@@ -259,6 +264,11 @@ class StaffUserSerializer(serializers.ModelSerializer):
                     )
                 })
 
+            if attrs.get("role") == User.Role.ADMIN and not attrs.get("organization"):
+                raise serializers.ValidationError({
+                    "organization": "An organization is required for an organization Admin."
+                })
+
             return attrs
 
         # --------------------------------------------------------
@@ -268,6 +278,17 @@ class StaffUserSerializer(serializers.ModelSerializer):
         current = self.instance
         next_role = attrs.get("role", current.role)
         next_active = attrs.get("is_active", current.is_active)
+        next_organization = attrs.get("organization", current.organization)
+
+        if current.is_superuser:
+            raise serializers.ValidationError({
+                "detail": "Superadmin accounts cannot be managed through the staff API."
+            })
+
+        if next_role == User.Role.ADMIN and next_organization is None:
+            raise serializers.ValidationError({
+                "organization": "An organization is required for an organization Admin."
+            })
 
         # Prevent an administrator from locking themselves out.
         if request and request.user.pk == current.pk:
@@ -293,6 +314,7 @@ class StaffUserSerializer(serializers.ModelSerializer):
             active_admins = User.objects.filter(
                 role=User.Role.ADMIN,
                 is_active=True,
+                organization=current.organization,
             ).count()
 
             if active_admins <= 1:

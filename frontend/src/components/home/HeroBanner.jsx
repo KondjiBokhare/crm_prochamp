@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ShieldCheck, Truck, Headphones } from "lucide-react";
+import {   ChevronLeft, ChevronRight,   ShieldCheck, Truck, Headphones } from "lucide-react";
 import {
   getStorefrontBanners,
   recordBannerClick,
@@ -158,12 +158,12 @@ function HeroBanner({ benefits = [] }) {
     else setCurrentIndex(index === 0 ? banners.length - 1 : index - 1);
   };
 
-  const moveProduct = (direction) => {
-    if (featuredProducts.length < 2) return;
-    const index = currentProductIndex % featuredProducts.length;
-    if (direction > 0) setCurrentProductIndex(index === featuredProducts.length - 1 ? featuredProducts.length : index + 1);
-    else setCurrentProductIndex(index === 0 ? featuredProducts.length - 1 : index - 1);
-  };
+  // const moveProduct = (direction) => {
+  //   if (featuredProducts.length < 2) return;
+  //   const index = currentProductIndex % featuredProducts.length;
+  //   if (direction > 0) setCurrentProductIndex(index === featuredProducts.length - 1 ? featuredProducts.length : index + 1);
+  //   else setCurrentProductIndex(index === 0 ? featuredProducts.length - 1 : index - 1);
+  // };
 
   const handleBannerTrackTransitionEnd = (event) => {
     if (event.target !== event.currentTarget || currentIndex !== banners.length || banners.length < 2) return;

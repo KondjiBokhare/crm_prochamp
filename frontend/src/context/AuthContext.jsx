@@ -233,15 +233,15 @@ export function AuthProvider({ children }) {
     if (!isApiAuthEnabled || !isStorefrontAuthEnabled) {
       throw new Error("Storefront API registration is disabled. Set VITE_STOREFRONT_AUTH_MODE=api and VITE_AUTH_MODE=api, then restart Vite.");
     }
-    await authJsonRequest("/api/auth/storefront-register/", {
-      method: "POST",
-      body: {
-        first_name: String(firstName || "").trim(),
-        last_name: String(lastName || "").trim(),
-        email: String(email || "").trim().toLowerCase(),
-        password,
-      },
-    });
+    await authJsonRequest("/api/auth/register/", {
+  method: "POST",
+  body: {
+    first_name: String(firstName || "").trim(),
+    last_name: String(lastName || "").trim(),
+    email: String(email || "").trim().toLowerCase(),
+    password,
+  },
+});
     return loginWithCustomerBackend(email, password);
   }, [loginWithCustomerBackend]);
 
@@ -289,12 +289,20 @@ export function AuthProvider({ children }) {
       const refresh = safelyReadSessionStorage(API_REFRESH_TOKEN_KEY);
       if (!refresh) {
         logout();
-        throw new Error("Your session expired. Please sign in again.");
+        throw new Error(
+          "Your session expired. Please sign in again.",
+          { cause: error }
+        );
       }
 
       try {
         const refreshed = await refreshDjangoToken(refresh);
-        if (!refreshed?.access) throw new Error("The refresh endpoint did not return an access token.");
+        if (!refreshed?.access) {
+          throw new Error(
+            "The refresh endpoint did not return an access token.",
+            { cause: error }
+          );
+        }
         token = refreshed.access;
         safelyWriteSessionStorage(API_ACCESS_TOKEN_KEY, token);
         safelyWriteSessionStorage(API_REFRESH_TOKEN_KEY, refreshed.refresh || refresh);
@@ -319,11 +327,21 @@ export function AuthProvider({ children }) {
       const refresh = safelyReadSessionStorage(API_REFRESH_TOKEN_KEY);
       if (!refresh) {
         logout();
-        throw new Error("Your session expired. Please sign in again.");
+        throw new Error(
+            "Your session expired. Please sign in again.",
+            { cause: error }
+          );
       }
       try {
         const refreshed = await refreshDjangoToken(refresh);
-        if (!refreshed?.access) throw new Error("The refresh endpoint did not return an access token.");
+        if (!refreshed?.access) {
+          if (!refreshed?.access) {
+              throw new Error(
+                "The refresh endpoint did not return an access token.",
+                { cause: error }
+              );
+            }
+        }
         token = refreshed.access;
         safelyWriteSessionStorage(API_ACCESS_TOKEN_KEY, token);
         safelyWriteSessionStorage(API_REFRESH_TOKEN_KEY, refreshed.refresh || refresh);

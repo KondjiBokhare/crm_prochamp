@@ -2,7 +2,7 @@
 from django.conf import settings
 
 from accounts.models import Organization
-from .models import Category, Customer, StorefrontCustomerProfile
+from .models import Category, Customer, CrmCustomerProfile
 
 
 def get_storefront_organization():
@@ -34,7 +34,7 @@ def ensure_storefront_customer(user, organization=None):
         user.organization = organization
         user.save(update_fields=["organization"])
 
-    profile, _ = StorefrontCustomerProfile.objects.get_or_create(user=user)
+    profile, _ = CrmCustomerProfile.objects.get_or_create(user=user)
     email = str(user.email or "").strip().lower()
     if not email:
         return None

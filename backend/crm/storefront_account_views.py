@@ -4,7 +4,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics, serializers
 from rest_framework.permissions import IsAuthenticated
 
-from .models import AuditLog, Customer, StorefrontAddress, StorefrontCustomerProfile, StorefrontSavedPaymentMethod
+from .models import AuditLog, Customer, CrmAddress, CrmCustomerProfile, CrmSavedPaymentMethod
 from .storefront_utils import ensure_storefront_customer, get_storefront_organization
 
 User = get_user_model()
@@ -49,7 +49,7 @@ class StorefrontCustomerProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
 
     class Meta:
-        model = StorefrontCustomerProfile
+        model = CrmCustomerProfile
         fields = [
             "id", "first_name", "last_name", "email", "phone", "date_of_birth",
             "gender", "email_updates", "sms_updates", "whatsapp_updates",
@@ -84,7 +84,7 @@ class StorefrontCustomerProfileSerializer(serializers.ModelSerializer):
 
 class StorefrontAddressSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StorefrontAddress
+        model = CrmAddress
         fields = [
             "id", "label", "full_name", "phone", "address_line1", "address_line2",
             "city", "state", "postal_code", "country", "is_default", "created_at", "updated_at",
@@ -107,7 +107,7 @@ class StorefrontCustomerProfileView(generics.RetrieveUpdateAPIView):
     http_method_names = ["get", "patch", "head", "options"]
 
     def get_object(self):
-        profile, _ = StorefrontCustomerProfile.objects.get_or_create(user=self.request.user)
+        profile, _ = CrmCustomerProfile.objects.get_or_create(user=self.request.user)
         return profile
 
 
@@ -116,7 +116,7 @@ class StorefrontAddressListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsStorefrontCustomer]
 
     def get_queryset(self):
-        return StorefrontAddress.objects.filter(user=self.request.user).order_by("-is_default", "-updated_at")
+        return CrmAddress.objects.filter(user=self.request.user).order_by("-is_default", "-updated_at")
 
     @transaction.atomic
     def perform_create(self, serializer):
@@ -135,7 +135,7 @@ class StorefrontAddressDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsStorefrontCustomer]
 
     def get_queryset(self):
-        return StorefrontAddress.objects.filter(user=self.request.user)
+        return CrmAddress.objects.filter(user=self.request.user)
 
     @transaction.atomic
     def perform_update(self, serializer):
@@ -157,7 +157,7 @@ class StorefrontAddressDetailView(generics.RetrieveUpdateDestroyAPIView):
         user = instance.user
         instance.delete()
         if was_default:
-            next_address = StorefrontAddress.objects.filter(user=user).first()
+            next_address = CrmAddress.objects.filter(user=user).first()
             if next_address:
                 next_address.is_default = True
                 next_address.save(update_fields=["is_default", "updated_at"])
@@ -165,7 +165,7 @@ class StorefrontAddressDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class StorefrontSavedPaymentMethodSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StorefrontSavedPaymentMethod
+        model = CrmSavedPaymentMethod
         fields = [
             "id", "method_type", "label", "provider", "upi_id", "last_four",
             "is_default", "created_at", "updated_at",
@@ -177,12 +177,12 @@ class StorefrontSavedPaymentMethodSerializer(serializers.ModelSerializer):
         method_type = attrs.get("method_type", getattr(instance, "method_type", None))
         upi_id = str(attrs.get("upi_id", getattr(instance, "upi_id", "")) or "").strip()
         last_four = str(attrs.get("last_four", getattr(instance, "last_four", "")) or "").strip()
-        if method_type == StorefrontSavedPaymentMethod.MethodType.CARD:
+        if method_type == CrmSavedPaymentMethod.MethodType.CARD:
             if not (len(last_four) == 4 and last_four.isdigit()):
                 raise serializers.ValidationError({"last_four": "For safety, save only the card's last four digits."})
             if upi_id:
                 raise serializers.ValidationError({"upi_id": "Do not enter a UPI ID for a card."})
-        elif method_type == StorefrontSavedPaymentMethod.MethodType.UPI:
+        elif method_type == CrmSavedPaymentMethod.MethodType.UPI:
             import re
             if not re.fullmatch(r"[A-Za-z0-9._-]{2,100}@[A-Za-z0-9.-]{2,60}", upi_id):
                 raise serializers.ValidationError({"upi_id": "Enter a valid UPI ID, such as name@provider."})
@@ -190,8 +190,8 @@ class StorefrontSavedPaymentMethodSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"last_four": "Card last-four digits do not apply to UPI."})
         else:
             raise serializers.ValidationError({"method_type": "Choose Card or UPI."})
-        attrs["upi_id"] = upi_id if method_type == StorefrontSavedPaymentMethod.MethodType.UPI else ""
-        attrs["last_four"] = last_four if method_type == StorefrontSavedPaymentMethod.MethodType.CARD else ""
+        attrs["upi_id"] = upi_id if method_type == CrmSavedPaymentMethod.MethodType.UPI else ""
+        attrs["last_four"] = last_four if method_type == CrmSavedPaymentMethod.MethodType.CARD else ""
         label = str(attrs.get("label", getattr(instance, "label", "")) or "").strip()
         if not label:
             raise serializers.ValidationError({"label": "Provide a display name for this payment method."})
@@ -205,7 +205,7 @@ class StorefrontSavedPaymentMethodListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsStorefrontCustomer]
 
     def get_queryset(self):
-        return StorefrontSavedPaymentMethod.objects.filter(user=self.request.user).order_by("-is_default", "-updated_at")
+        return CrmSavedPaymentMethod.objects.filter(user=self.request.user).order_by("-is_default", "-updated_at")
 
     @transaction.atomic
     def perform_create(self, serializer):
@@ -215,7 +215,7 @@ class StorefrontSavedPaymentMethodListCreateView(generics.ListCreateAPIView):
             current.update(is_default=False)
         method = serializer.save(user=self.request.user, is_default=make_default)
         _audit_storefront_action(
-            self.request, "CREATE", "StorefrontSavedPaymentMethod", method.pk,
+            self.request, "CREATE", "CrmSavedPaymentMethod", method.pk,
             f"Customer saved payment method metadata ({method.method_type}).",
         )
 
@@ -226,7 +226,7 @@ class StorefrontSavedPaymentMethodDetailView(generics.RetrieveUpdateDestroyAPIVi
     http_method_names = ["get", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
-        return StorefrontSavedPaymentMethod.objects.filter(user=self.request.user)
+        return CrmSavedPaymentMethod.objects.filter(user=self.request.user)
 
     @transaction.atomic
     def perform_update(self, serializer):
@@ -236,7 +236,7 @@ class StorefrontSavedPaymentMethodDetailView(generics.RetrieveUpdateDestroyAPIVi
             self.get_queryset().exclude(pk=current.pk).update(is_default=False)
         method = serializer.save(is_default=make_default)
         _audit_storefront_action(
-            self.request, "UPDATE", "StorefrontSavedPaymentMethod", method.pk,
+            self.request, "UPDATE", "CrmSavedPaymentMethod", method.pk,
             f"Customer updated saved payment method metadata ({method.method_type}).",
         )
 
@@ -245,25 +245,25 @@ class StorefrontSavedPaymentMethodDetailView(generics.RetrieveUpdateDestroyAPIVi
         was_default = instance.is_default
         user = instance.user
         _audit_storefront_action(
-            self.request, "DELETE", "StorefrontSavedPaymentMethod", instance.pk,
+            self.request, "DELETE", "CrmSavedPaymentMethod", instance.pk,
             f"Customer removed saved payment method metadata ({instance.method_type}).",
         )
         instance.delete()
         if was_default:
-            next_method = StorefrontSavedPaymentMethod.objects.filter(user=user).first()
+            next_method = CrmSavedPaymentMethod.objects.filter(user=user).first()
             if next_method:
                 next_method.is_default = True
                 next_method.save(update_fields=["is_default", "updated_at"])
 
 # ---------------------------------------------------------------------------
-# Shared storefront orders and customer support tickets (Phase 33)
+# Shared storefront orders and customer support tickets
 # ---------------------------------------------------------------------------
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 import re
 import uuid
 
-from django.db.models import Q
+from django.db.models import Avg, Count, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -271,7 +271,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
 
-from .models import DiscountCoupon, Order, Product, SupportTicket, SupportTicketMessage
+from .models import (
+    CrmWishlistItem,
+    DiscountCoupon,
+    Order,
+    Product,
+    ProductReview,
+    SupportTicket,
+    SupportTicketMessage,
+)
 from .serializers import OrderSerializer, SupportTicketSerializer, SupportTicketMessageSerializer
 from .storefront_utils import ensure_storefront_customer, get_storefront_organization
 
@@ -291,6 +299,88 @@ def _storefront_customer_context(request):
     if customer is None:
         raise PermissionDenied("The customer account could not be linked to the storefront CRM organization.")
     return organization, customer
+
+
+class StorefrontCustomerSummaryView(APIView):
+    permission_classes = [IsStorefrontCustomer]
+
+    def get(self, request):
+        organization, customer = _storefront_customer_context(request)
+
+        # Orders belonging to the currently signed-in customer.
+        orders = (
+            Order.objects.filter(organization=organization)
+            .filter(
+                Q(source_user=request.user) | Q(customer=customer)
+            )
+            .distinct()
+        )
+
+        total_orders = orders.count()
+
+        # Membership is based on delivered orders, not unpaid demo orders.
+        delivered_orders = orders.filter(
+            status=Order.OrderStatus.DELIVERED
+        ).count()
+
+        # Starter membership rules:
+        # 0 delivered = New Member
+        # 1-2 = Bronze, 3-4 = Silver,
+        # 5-9 = Gold, 10+ = Platinum
+        if delivered_orders >= 10:
+            member_tier = "Platinum"
+        elif delivered_orders >= 5:
+            member_tier = "Gold"
+        elif delivered_orders >= 3:
+            member_tier = "Silver"
+        elif delivered_orders >= 1:
+            member_tier = "Bronze"
+        else:
+            member_tier = "New Member"
+
+        # Wishlist and submitted reviews currently use a browser visitor ID.
+        visitor_id = str(
+            request.query_params.get("visitor_id") or ""
+        ).strip()
+
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", visitor_id):
+            visitor_id = ""
+
+        wishlist_items = 0
+        average_rating = None
+        review_count = 0
+
+        if visitor_id:
+            wishlist_items = CrmWishlistItem.objects.filter(
+                organization=organization,
+                visitor_id=visitor_id,
+                product__status="Active",
+                product__category__is_active=True,
+            ).count()
+
+            review_stats = ProductReview.objects.filter(
+                organization=organization,
+                visitor_id=visitor_id,
+            ).aggregate(
+                average=Avg("rating"),
+                count=Count("id"),
+            )
+
+            average = review_stats["average"]
+            average_rating = (
+                round(float(average), 1)
+                if average is not None
+                else None
+            )
+            review_count = int(review_stats["count"] or 0)
+
+        return Response({
+            "totalOrders": total_orders,
+            "wishlistItems": wishlist_items,
+            "averageRating": average_rating,
+            "reviewCount": review_count,
+            "memberTier": member_tier,
+        })
 
 
 def _storefront_order_payload(order):
@@ -492,7 +582,7 @@ class StorefrontOrderListCreateView(APIView):
             amount=total,
             status=Order.OrderStatus.PROCESSING,
             order_date=now,
-            storefront_data=details,
+            crm_data=details,
         )
         if coupon is not None:
             coupon.used_count += 1
@@ -581,7 +671,7 @@ class StorefrontLegacyOrderImportView(APIView):
                 amount=total,
                 status=order_status,
                 order_date=order_date,
-                storefront_data=details,
+                crm_data=details,
             )
             created += 1
         return Response({"created": created, "duplicates": duplicates, "skipped": skipped}, status=status.HTTP_200_OK)

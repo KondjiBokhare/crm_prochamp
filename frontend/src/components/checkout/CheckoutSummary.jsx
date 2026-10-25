@@ -51,7 +51,18 @@ function CheckoutSummary({ cartItems = [], address, paymentMethod, customerEmail
       <div className="summary-divider"/>
       <div className="summary-total"><span>Total Payable</span><strong>₹{total.toLocaleString("en-IN")}</strong></div>
       {error && <div className="crm-error-banner checkout-inline-error" role="alert">{error}</div>}
-      <button type="button" className="place-order-button" onClick={handlePlaceOrder} disabled={saving || placedRef.current}>{saving ? "Placing order…" : storefrontOrdersApiEnabled ? "Place Order" : "Place Demo Order"}</button>
+     <button
+        type="button"
+        className="place-order-button"
+        onClick={handlePlaceOrder}
+        disabled={saving}
+      >
+        {saving
+          ? "Placing order…"
+          : storefrontOrdersApiEnabled
+            ? "Place Order"
+            : "Place Demo Order"}
+      </button>
       <p className="checkout-demo-note">{storefrontOrdersApiEnabled ? "Your order will be saved to the CRM. No real payment is processed and no delivery is booked yet." : "Demo checkout only. No real payment is processed and no delivery is booked."}</p>
       <div className="checkout-security"><ShieldCheck size={17}/><span>Order details are shown for demonstration.</span></div>
       <div className="checkout-security"><LockKeyhole size={17}/><span>Do not enter real payment credentials.</span></div>

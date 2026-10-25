@@ -91,7 +91,9 @@ export function mapDjangoOrder(raw = {}) {
 }
 
 export async function getOrderManagementOrders(_params = {}, authenticatedRequest) {
+  void _params;
   const request = requireRequest(authenticatedRequest);
+
   const payload = await request(ORDERS_PATH, { method: "GET" });
   return asCollection(payload).map(mapDjangoOrder);
 }
@@ -103,6 +105,7 @@ export async function getManagedOrderById(id, authenticatedRequest) {
 }
 
 export async function updateOrderStatus(id, nextStatus, _actor = "CRM Staff", authenticatedRequest) {
+   void _actor;
   const request = requireRequest(authenticatedRequest);
   const apiStatus = LABEL_TO_STATUS[String(nextStatus || "")];
   if (!apiStatus) throw new Error("That order status is not supported by the Django order API.");

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ClipboardList, RefreshCw, SlidersHorizontal } from "lucide-react";
+import {   RefreshCw, SlidersHorizontal } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { getProducts } from "../../services/crmService";
 import { createInventoryAdjustment, getInventoryMovements } from "../../services/crmCommerceOpsApiService";
 import { crmInventoryMode } from "../../services/crmService";
 import { EmptyState, MetricCard, PageHeader, SectionCard, StatusBadge } from "../../components/crm/CrmUI";
 
-const money = (value) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(Number(value) || 0);
+
 const dateLabel = (value) => value ? new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—";
 const initialForm = () => ({ productId: "", direction: "ADD", quantity: "1", movementType: "RESTOCK", reason: "" });
 

@@ -4,14 +4,10 @@
 # ============================================================
 
 from django.conf import settings
+
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.utils import timezone
-
-
-# ============================================================
-# User manager
-# ============================================================
 
 class UserManager(BaseUserManager):
     """Manage creation of email-based users and superusers."""

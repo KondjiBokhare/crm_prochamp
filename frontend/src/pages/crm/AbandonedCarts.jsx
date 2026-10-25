@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Clock3, RefreshCw, ShoppingCart } from "lucide-react";
+import { Clock3, RefreshCw  } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { getAbandonedCarts } from "../../services/crmCommerceOpsApiService";
 import { crmAbandonedCartsMode } from "../../services/crmService";

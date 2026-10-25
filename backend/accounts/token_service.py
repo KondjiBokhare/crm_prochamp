@@ -14,7 +14,6 @@ REFRESH_TOKEN_LIFETIME = timedelta(days=7)
 class TokenError(Exception):
     """Raised when a JWT is invalid or cannot be verified."""
 
-
 def _get_signing_key():
     key = getattr(settings, "JWT_SIGNING_KEY", None)
 
@@ -25,7 +24,6 @@ def _get_signing_key():
         )
 
     return key
-
 
 def create_token(user, token_type, lifetime):
     if token_type not in {"access", "refresh"}:
@@ -46,7 +44,6 @@ def create_token(user, token_type, lifetime):
         _get_signing_key(),
         algorithm="HS256",
     )
-
 
 def create_access_token(user):
     return create_token(user, "access", ACCESS_TOKEN_LIFETIME)

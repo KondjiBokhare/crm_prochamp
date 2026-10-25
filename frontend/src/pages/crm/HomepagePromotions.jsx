@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Check, Eye, Package, RotateCcw, Save, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowUp, Check,  Package, RotateCcw, Save, Sparkles } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { crmHomepagePromotionsMode, getProducts } from "../../services/crmService";
 import { getHomepagePromotionSettings, loadHomepagePromotionSettings, saveHomepagePromotionSettings } from "../../services/homepagePromotionsService";
-import { EmptyState, MetricCard, PageHeader, SectionCard, StatusBadge } from "../../components/crm/CrmUI";
+import { EmptyState, MetricCard, PageHeader, SectionCard } from "../../components/crm/CrmUI";
 
 const money = (value) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value) || 0);
 

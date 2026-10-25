@@ -1,5 +1,5 @@
 from datetime import date, timedelta
-
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -7,7 +7,7 @@ from rest_framework.test import APITestCase
 from accounts.token_service import create_access_token
 
 from accounts.models import User, Organization
-from crm.models import Customer, AuditLog
+from crm.models import AuditLog, Category, Customer, Product, StockMovement
 
 
 class AuditLogAPITests(APITestCase):
@@ -24,6 +24,10 @@ class AuditLogAPITests(APITestCase):
             password="Test@12345",
             role="ADMIN",
             organization=self.org_a,
+        )
+        self.superadmin = User.objects.create_superuser(
+            email="superadmin@test.com",
+            password="Test@12345",
         )
         self.admin_b = User.objects.create_user(
             email="admin_b@test.com",
@@ -119,18 +123,18 @@ class AuditLogAPITests(APITestCase):
             status.HTTP_401_UNAUTHORIZED,
         )
 
-    def test_admin_can_read_audit_logs(self):
+    def test_organization_admin_cannot_read_audit_logs(self):
         self.authenticate(self.admin_a)
 
         response = self.client.get(self.audit_url)
 
         self.assertEqual(
             response.status_code,
-            status.HTTP_200_OK,
+            status.HTTP_403_FORBIDDEN,
         )
 
-    def test_logs_are_isolated_by_organization(self):
-        self.authenticate(self.admin_a)
+    def test_superadmin_can_read_logs_across_organizations(self):
+        self.authenticate(self.superadmin)
 
         response = self.client.get(self.audit_url)
 
@@ -145,9 +149,23 @@ class AuditLogAPITests(APITestCase):
         }
 
         self.assertIn(str(self.customer.id), returned_ids)
-        self.assertNotIn("999", returned_ids)
+        self.assertIn("999", returned_ids)
 
-    def test_management_can_read_audit_logs(self):
+    def test_superadmin_can_filter_logs_by_organization(self):
+        self.authenticate(self.superadmin)
+
+        response = self.client.get(
+            self.audit_url,
+            {"organization_id": self.org_a.pk},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {entry["organization_id"] for entry in self.response_items(response)},
+            {self.org_a.pk},
+        )
+
+    def test_management_cannot_read_audit_logs(self):
         management = User.objects.create_user(
             email="manager@test.com",
             password="Test@12345",
@@ -160,7 +178,7 @@ class AuditLogAPITests(APITestCase):
 
         self.assertEqual(
             response.status_code,
-            status.HTTP_200_OK,
+            status.HTTP_403_FORBIDDEN,
         )
 
     def test_sales_cannot_read_audit_logs(self):
@@ -174,7 +192,7 @@ class AuditLogAPITests(APITestCase):
         )
 
     def test_audit_endpoint_is_read_only(self):
-        self.client.force_authenticate(user=self.admin_a)
+        self.client.force_authenticate(user=self.superadmin)
 
         payload = {
             "action": "CREATE",
@@ -206,7 +224,7 @@ class AuditLogAPITests(APITestCase):
         )
 
     def test_filter_by_action(self):
-        self.authenticate(self.admin_a)
+        self.authenticate(self.superadmin)
 
         response = self.client.get(
             self.audit_url,
@@ -222,7 +240,7 @@ class AuditLogAPITests(APITestCase):
         )
 
     def test_filter_by_entity_type(self):
-        self.authenticate(self.admin_a)
+        self.authenticate(self.superadmin)
 
         response = self.client.get(
             self.audit_url,
@@ -238,7 +256,7 @@ class AuditLogAPITests(APITestCase):
         )
 
     def test_invalid_action_returns_400(self):
-        self.authenticate(self.admin_a)
+        self.authenticate(self.superadmin)
 
         response = self.client.get(
             self.audit_url,
@@ -251,7 +269,7 @@ class AuditLogAPITests(APITestCase):
         )
 
     def test_invalid_date_returns_400(self):
-        self.authenticate(self.admin_a)
+        self.authenticate(self.superadmin)
 
         response = self.client.get(
             self.audit_url,
@@ -264,7 +282,7 @@ class AuditLogAPITests(APITestCase):
         )
 
     def test_start_date_after_end_date_returns_400(self):
-        self.authenticate(self.admin_a)
+        self.authenticate(self.superadmin)
 
         response = self.client.get(
             self.audit_url,
@@ -280,7 +298,7 @@ class AuditLogAPITests(APITestCase):
         )
 
     def test_date_filter_returns_only_matching_logs(self):
-        self.authenticate(self.admin_a)
+        self.authenticate(self.superadmin)
 
         today = timezone.localdate().isoformat()
         yesterday = (
@@ -304,4 +322,103 @@ class AuditLogAPITests(APITestCase):
                 str(item["entity_id"])
                 for item in self.response_items(response)
             },
+        )
+
+
+class ProductAccessAPITests(APITestCase):
+    """Product reads are public; catalogue writes are restricted to Management."""
+
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Product organization")
+        self.category = Category.objects.create(
+            organization=self.organization,
+            name="Accessories",
+        )
+        self.product = Product.objects.create(
+            organization=self.organization,
+            category=self.category,
+            name="Public product",
+            sku="PUBLIC-001",
+            brand="Prochamps",
+            price="99.00",
+            stock=5,
+            status=Product.ProductStatus.ACTIVE,
+        )
+        self.management = User.objects.create_user(
+            email="manager-products@test.com",
+            password="Test@12345",
+            role="MANAGEMENT",
+            organization=self.organization,
+        )
+        self.sales = User.objects.create_user(
+            email="sales-products@test.com",
+            password="Test@12345",
+            role="SALES",
+            organization=self.organization,
+        )
+
+    def authenticate(self, user):
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {create_access_token(user)}"
+        )
+
+    def payload(self, sku="MANAGED-001"):
+        return {
+            "name": "Managed product",
+            "sku": sku,
+            "brand": "Prochamps",
+            "category_name": self.category.name,
+            "price": "149.00",
+            "stock": 3,
+            "status": "Draft",
+        }
+
+    def test_product_list_is_public(self):
+        with override_settings(
+            STOREFRONT_ORGANIZATION_ID=self.organization.pk,
+        ):
+            response = self.client.get("/api/crm/products/")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            response.data,
+        )
+
+        self.assertEqual(
+            len(response.data),
+            1,
+            response.data,
+        )
+
+        self.assertEqual(
+            response.data[0]["id"],
+            self.product.id,
+        )
+
+    def test_non_management_user_cannot_create_product(self):
+        self.authenticate(self.sales)
+
+        response = self.client.post(
+            "/api/crm/products/", self.payload(), format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_management_user_can_create_product_in_own_organization(self):
+        self.authenticate(self.management)
+
+        response = self.client.post(
+            "/api/crm/products/", self.payload(), format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        product = Product.objects.get(sku="MANAGED-001")
+        self.assertEqual(product.organization, self.organization)
+        self.assertTrue(
+            StockMovement.objects.filter(
+                product=product,
+                movement_type=StockMovement.MovementType.RESTOCK,
+                quantity_delta=3,
+            ).exists()
         )

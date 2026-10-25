@@ -10,7 +10,13 @@ import * as supportApi from "./crmSupportApiService";
 import * as storefrontSupportApi from "./storefrontSupportApiService";
 import * as storefrontOrderApi from "./storefrontOrderApiService";
 import * as leadBannerApi from "./crmLeadBannerApiService";
-import { getProductCatalog, createCatalogProduct, updateCatalogProduct, setCatalogProductStatus } from "./productCatalogService";
+import {
+  getProductCatalog,
+  createCatalogProduct,
+  bulkCreateCatalogProducts,
+  updateCatalogProduct,
+  setCatalogProductStatus,
+} from "./productCatalogService";
 import * as operationsApi from "./crmOperationsApiService";
 import * as orderOperationsApi from "./crmOrderOperationsApiService";
 export const crmCommunicationsMode = operationsApi.crmCommunicationsMode;
@@ -110,9 +116,10 @@ export const getCampaigns = (...args) => crmCampaignsMode === "api" ? resourceAp
 export const createCampaign = (...args) => crmCampaignsMode === "api" ? resourceApi.createApiCampaign(...args) : mock.createCampaign(...args);
 export const simulateCampaignLaunch = (...args) => crmCampaignsMode === "api" ? resourceApi.setApiCampaignRunning(...args) : mock.simulateCampaignLaunch(...args);
 export const getAnalyticsData = (...args) => crmAnalyticsMode === "api" ? reportingApi.getApiAnalytics(...args) : service.getAnalyticsData(...args);
-export const getCampaignResponses = (...args) => crmCampaignResponsesMode === "api"
-  ? reportingApi.getApiCampaignResponses(...args)
-  : (typeof mock.getCampaignResponses === "function" ? mock.getCampaignResponses(...args) : Promise.resolve([]));
+export const getCampaignResponses = (...args) =>
+  crmCampaignResponsesMode === "api"
+    ? reportingApi.getApiCampaignResponses(...args)
+    : Promise.resolve([]);
 export const getAuditLogs = (...args) => crmAuditLogsMode === "api"
   ? reportingApi.getApiAuditLogs(...args)
   : Promise.resolve([]);
@@ -128,8 +135,11 @@ export const recordBannerClick = (...args) => crmBannersMode === "api" ? leadBan
 // Product catalogue supports the mock browser store now and proposed Django endpoints in API mode.
 export const getProducts = (...args) => getProductCatalog(...args);
 export const createProduct = (...args) => createCatalogProduct(...args);
+export const bulkCreateProducts = (...args) =>
+  bulkCreateCatalogProducts(...args);
 export const updateProduct = (...args) => updateCatalogProduct(...args);
-export const setProductStatus = (...args) => setCatalogProductStatus(...args);
+export const setProductStatus = (...args) =>
+  setCatalogProductStatus(...args);
 
 
 // Lead management uses the same UI-facing service abstraction as other CRM modules.

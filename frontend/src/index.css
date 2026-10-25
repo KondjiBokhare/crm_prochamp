@@ -68,3 +68,29 @@ a {
   flex: 1;
   padding: 30px;
 }
+
+/* =========================================
+   GLOBAL SCROLLBAR CLEANUP
+   Applies to storefront and CRM dashboard
+   ========================================= */
+
+/* Prevent unwanted horizontal page scrolling */
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+/* Hide visible scrollbars but preserve scrolling */
+* {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+/* Chrome, Edge, Safari */
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}

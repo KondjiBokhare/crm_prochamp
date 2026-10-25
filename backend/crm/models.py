@@ -186,9 +186,9 @@ class Order(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="storefront_orders",
+        related_name="crm_orders",
     )
-    storefront_data = models.JSONField(default=dict, blank=True)
+    crm_data = models.JSONField(default=dict, blank=True)
 
     created_at = models.DateTimeField(
         auto_now_add=True
@@ -320,7 +320,6 @@ class OrderActivityEvent(models.Model):
 
 
 class Segment(models.Model):
-
     class SegmentType(models.TextChoices):
         MANUAL = "MANUAL", "Manual"
         DYNAMIC = "DYNAMIC", "Dynamic"
@@ -390,10 +389,9 @@ class Segment(models.Model):
 
     def __str__(self):
         return self.name
-    
+
 
 class Campaign(models.Model):
-
     class CampaignType(models.TextChoices):
         EMAIL = "EMAIL", "Email"
         SMS = "SMS", "SMS"
@@ -575,7 +573,7 @@ class CampaignResponse(models.Model):
             f"{self.customer} - "
             f"{self.status}"
         )
-    
+
 class AuditLog(models.Model):
 
     class ActionType(models.TextChoices):
@@ -627,10 +625,6 @@ class AuditLog(models.Model):
     def __str__(self):
         return f"{self.action} {self.entity_type} by {self.user}"
 
-# ---------------------------------------------------------------------------
-# Phase 21 — Product catalogue, categories and support tickets
-# ---------------------------------------------------------------------------
-
 class Category(models.Model):
     organization = models.ForeignKey(
         Organization,
@@ -655,7 +649,6 @@ class Category(models.Model):
 
     def __str__(self):
         return self.name
-
 
 class Product(models.Model):
     class ProductStatus(models.TextChoices):
@@ -801,10 +794,7 @@ class SupportTicketMessage(models.Model):
     def __str__(self):
         return f"Message for {self.ticket.ticket_code} by {self.author_name}"
 
-# ---------------------------------------------------------------------------
 # Phase 22 — Leads, banners and homepage promotion settings
-# ---------------------------------------------------------------------------
-
 class Lead(models.Model):
     class LeadStatus(models.TextChoices):
         NEW = "New", "New"
@@ -902,7 +892,7 @@ class Banner(models.Model):
     clicks = models.PositiveBigIntegerField(default=0)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name="created_storefront_banners"
+        related_name="created_crm_banners"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -946,26 +936,22 @@ class HomepagePromotionSettings(models.Model):
         return f"Homepage promotions — {self.organization.name}"
 
 
-# ---------------------------------------------------------------------------
 # Phase 23 — persisted storefront settings, communications and notifications
-# ---------------------------------------------------------------------------
-
-class StorefrontSettings(models.Model):
+class CrmSettings(models.Model):
     """Organization-scoped JSON settings used by the public store and CRM editor."""
     organization = models.OneToOneField(
-        Organization, on_delete=models.CASCADE, related_name="storefront_settings"
+        Organization, on_delete=models.CASCADE, related_name="crm_settings"
     )
     data = models.JSONField(default=dict, blank=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name="updated_storefront_settings"
+        related_name="updated_crm_settings"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Storefront settings — {self.organization.name}"
-
+        return f"CRM frontend settings — {self.organization.name}"
 
 class CommunicationTemplate(models.Model):
     class Channel(models.TextChoices):
@@ -1005,7 +991,6 @@ class CommunicationTemplate(models.Model):
     def __str__(self):
         return self.name
 
-
 class CommunicationLog(models.Model):
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="communication_logs"
@@ -1037,7 +1022,6 @@ class CommunicationLog(models.Model):
 
     def __str__(self):
         return f"{self.channel}: {self.subject}"
-
 
 class Notification(models.Model):
     organization = models.ForeignKey(
@@ -1071,9 +1055,7 @@ class Notification(models.Model):
         return self.title
 
 
-# ---------------------------------------------------------------------------
-# Phase 24 — pseudonymous storefront behaviour events
-# ---------------------------------------------------------------------------
+# Phase 24 — pseudonymous crm behaviour events
 
 class CustomerBehaviorEvent(models.Model):
     """Pseudonymous product/search journey event; deliberately stores no PII."""
@@ -1088,7 +1070,7 @@ class CustomerBehaviorEvent(models.Model):
         PURCHASE = "purchase", "Demo purchase"
 
     organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="storefront_behavior_events"
+        Organization, on_delete=models.CASCADE, related_name="crm_behavior_events"
     )
     event_id = models.CharField(max_length=100)
     visitor_id = models.CharField(max_length=100)
@@ -1130,13 +1112,11 @@ class CustomerBehaviorEvent(models.Model):
         return f"{self.event_type} · {self.event_id}"
 
 
-# ---------------------------------------------------------------------------
-# Phase 25 — storefront cart, wishlist, and moderated product reviews
-# ---------------------------------------------------------------------------
+# Phase 25 — crm cart, wishlist, and moderated product reviews
 
-class StorefrontCart(models.Model):
+class CrmCart(models.Model):
     organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="storefront_carts"
+        Organization, on_delete=models.CASCADE, related_name="crm_carts"
     )
     visitor_id = models.CharField(max_length=100)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1158,9 +1138,9 @@ class StorefrontCart(models.Model):
         return f"Cart {self.visitor_id[:12]} · {self.organization_id}"
 
 
-class StorefrontCartItem(models.Model):
-    cart = models.ForeignKey(StorefrontCart, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="storefront_cart_items")
+class CrmCartItem(models.Model):
+    cart = models.ForeignKey(CrmCart, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="crm_cart_items")
     quantity = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1178,12 +1158,12 @@ class StorefrontCartItem(models.Model):
         return f"{self.quantity} × {self.product.name}"
 
 
-class StorefrontWishlistItem(models.Model):
+class CrmWishlistItem(models.Model):
     organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="storefront_wishlist_items"
+        Organization, on_delete=models.CASCADE, related_name="crm_wishlist_items"
     )
     visitor_id = models.CharField(max_length=100)
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="storefront_wishlist_items")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="crm_wishlist_items")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -1218,7 +1198,6 @@ class ProductReview(models.Model):
     title = models.CharField(max_length=120)
     comment = models.TextField(max_length=2000)
     status = models.CharField(max_length=12, choices=ReviewStatus.choices, default=ReviewStatus.PENDING)
-    # No customer-authentication or order-verification flow exists yet, so public reviews are never marked verified.
     verified_purchase = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1320,7 +1299,7 @@ class DiscountCoupon(models.Model):
         return f"{self.code} ({self.name})"
 
 
-class StorefrontCustomerProfile(models.Model):
+class CrmCustomerProfile(models.Model):
     class Gender(models.TextChoices):
         UNSPECIFIED = "UNSPECIFIED", "Not specified"
         FEMALE = "FEMALE", "Female"
@@ -1329,7 +1308,7 @@ class StorefrontCustomerProfile(models.Model):
         PREFER_NOT_TO_SAY = "PREFER_NOT_TO_SAY", "Prefer not to say"
 
     user = models.OneToOneField(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="storefront_profile"
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="crm_profile"
     )
     profile_image = models.ImageField(upload_to="customer-profile-images/%Y/%m/", blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True)
@@ -1342,17 +1321,17 @@ class StorefrontCustomerProfile(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Storefront profile: {self.user.email}"
+        return f"CRM profile: {self.user.email}"
 
 
-class StorefrontAddress(models.Model):
+class CrmAddress(models.Model):
     class Label(models.TextChoices):
         HOME = "HOME", "Home"
         WORK = "WORK", "Work"
         OTHER = "OTHER", "Other"
 
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="storefront_addresses"
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="crm_addresses"
     )
     label = models.CharField(max_length=12, choices=Label.choices, default=Label.HOME)
     full_name = models.CharField(max_length=150)
@@ -1371,16 +1350,16 @@ class StorefrontAddress(models.Model):
         ordering = ["-is_default", "-updated_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["user"], condition=models.Q(is_default=True), name="unique_default_storefront_address_per_user"
+                fields=["user"], condition=models.Q(is_default=True), name="unique_default_crm_address_per_user"
             ),
         ]
-        indexes = [models.Index(fields=["user", "is_default"], name="crm_store_user_idx")]
+        indexes = [models.Index(fields=["user", "is_default"], name="crm_address_user_idx")]
 
     def __str__(self):
         return f"{self.full_name} - {self.city}"
 
 
-class StorefrontSavedPaymentMethod(models.Model):
+class CrmSavedPaymentMethod(models.Model):
     """Customer-managed, non-chargeable payment display metadata.
 
     This table intentionally never stores full card numbers, CVV, bank passwords,
@@ -1393,7 +1372,7 @@ class StorefrontSavedPaymentMethod(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="saved_payment_methods",
+        related_name="crm_saved_payment_methods",
     )
     method_type = models.CharField(max_length=8, choices=MethodType.choices)
     label = models.CharField(max_length=100)

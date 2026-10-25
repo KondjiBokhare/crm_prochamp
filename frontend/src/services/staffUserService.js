@@ -204,7 +204,8 @@ export function authenticateStaffUser(email, password, demoUsers = []) {
   });
   const record = [...demoRecords, ...managed].find((user) => normaliseEmail(user.email) === target);
   if (!record || record.active === false || record.password !== String(password || "")) return null;
-  const { password: ignoredPassword, ...publicRecord } = record;
+  const publicRecord = { ...record };
+  delete publicRecord.password;
   return safeUser(publicRecord, { isDemo: Boolean(record.isDemo), hasCustomPassword: Boolean(record.isDemo ? overrides[String(record.id)]?.password : true) });
 }
 

@@ -1,13 +1,13 @@
 import { Heart, Star } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
 
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useWishlist } from "../../context/WishlistContext";
 import { recordWishlistChange } from "../../services/customerBehaviorService";
 
 function ProductCard({ product }) {
   const navigate = useNavigate();
-
+const location = useLocation();
   const { isAuthenticated } = useAuth();
 
   const {
@@ -20,7 +20,9 @@ function ProductCard({ product }) {
   const handleWishlistClick = () => {
     // Guest user → Login page
     if (!isAuthenticated) {
-      navigate("/login");
+     navigate("/login", {
+  state: { backgroundLocation: location },
+});
       return;
     }
 
@@ -36,11 +38,11 @@ function ProductCard({ product }) {
           TOP BADGES
       ========================= */}
       <div className="product-top-row">
-        {product.discount && (
-          <span className="discount-badge">
-            {product.discount}% OFF
-          </span>
-        )}
+        {Number(product.discount) > 0 && (
+  <span className="discount-badge">
+    {product.discount}% OFF
+  </span>
+)}
 
         {product.badge && (
           <span className="product-badge">

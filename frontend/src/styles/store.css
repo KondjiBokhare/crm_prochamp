@@ -15057,3 +15057,210 @@ html[data-theme="dark"] .store-info-page .store-info-back:hover {
     padding: 12px;
   }
 }
+
+/* ==========================================
+   CUSTOMER AUTH MODAL — GLASS EFFECT
+   ========================================== */
+
+.auth-page.auth-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+  min-height: 100dvh;
+  padding: 20px;
+
+  overflow-y: auto;
+
+  background: rgba(20, 23, 17, 0.48);
+  backdrop-filter: blur(9px) saturate(120%);
+  -webkit-backdrop-filter: blur(9px) saturate(120%);
+
+  animation: authBackdropIn 180ms ease-out;
+}
+
+.auth-page .auth-modal {
+  position: relative;
+
+  display: grid;
+  grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+  grid-template-rows: minmax(0, 1fr);
+
+  width: min(940px, 100%);
+  height: min(760px, calc(100dvh - 40px));
+  max-height: calc(100dvh - 40px);
+  min-height: 0;
+
+  overflow: hidden;
+
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 22px;
+
+  background: rgba(250, 251, 246, 0.82);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.3);
+
+  backdrop-filter: blur(22px) saturate(125%);
+  -webkit-backdrop-filter: blur(22px) saturate(125%);
+
+  animation: authModalIn 220ms ease-out;
+}
+
+/* Close button */
+
+.auth-page .auth-modal-close {
+  position: absolute;
+  z-index: 10;
+  top: 12px;
+  right: 12px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 38px;
+  height: 38px;
+
+  border: 1px solid rgba(70, 75, 61, 0.15);
+  border-radius: 50%;
+
+  color: #25271f;
+  background: rgba(255, 255, 255, 0.78);
+
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.auth-page .auth-modal-close:hover {
+  background: #ffffff;
+  transform: rotate(5deg);
+}
+
+/* Brand panel */
+
+.auth-page .auth-modal .auth-brand-panel {
+  min-height: 0;
+  height: 100%;
+  padding: clamp(24px, 4vw, 42px);
+
+  overflow: hidden;
+  border-radius: 21px 0 0 21px;
+}
+
+.auth-page .auth-modal .auth-logo {
+  margin-bottom: clamp(25px, 4vh, 42px);
+}
+
+.auth-page .auth-modal .auth-brand-heading h1 {
+  font-size: clamp(32px, 3.5vw, 46px);
+}
+
+/* Form panel */
+
+.auth-page .auth-modal .auth-form-panel {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+
+  padding: 48px clamp(24px, 4vw, 44px) 30px;
+
+  overflow-y: auto;
+
+  background: rgba(255, 255, 255, 0.70);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.auth-page .auth-modal .auth-form-container {
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+}
+
+.auth-page .auth-modal .auth-form-header {
+  margin-bottom: 22px;
+}
+
+.auth-page .auth-modal .auth-form-header h2 {
+  font-size: clamp(27px, 2.7vw, 34px);
+}
+
+.auth-page .auth-modal .auth-field {
+  margin-bottom: 15px;
+}
+
+.auth-page .auth-modal .auth-input-wrapper {
+  height: 48px;
+}
+
+/* Modal animation */
+
+@keyframes authBackdropIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes authModalIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Mobile */
+
+@media (max-width: 760px) {
+  .auth-page.auth-modal-backdrop {
+    padding: 12px;
+  }
+
+  .auth-page .auth-modal {
+    display: block;
+    width: min(500px, 100%);
+    height: auto;
+    max-height: calc(100dvh - 24px);
+    border-radius: 20px;
+  }
+
+  .auth-page .auth-modal .auth-brand-panel {
+    display: none;
+  }
+
+  .auth-page .auth-modal .auth-form-panel {
+    width: 100%;
+    height: auto;
+    max-height: calc(100dvh - 24px);
+    min-height: 0;
+
+    padding: 48px 24px 28px;
+    border-radius: 20px;
+
+    background: rgba(255, 255, 255, 0.86);
+  }
+
+  .auth-page .auth-modal .auth-form-header h2 {
+    font-size: 29px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-page.auth-modal-backdrop,
+  .auth-page .auth-modal {
+    animation: none;
+  }
+}

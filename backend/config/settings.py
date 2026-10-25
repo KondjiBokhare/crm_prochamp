@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
     'corsheaders',
     'accounts',
     'crm',
@@ -107,6 +108,7 @@ DATABASES = {
 }
 
 
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "accounts.authentication.CustomJWTAuthentication",
@@ -114,6 +116,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "EXCEPTION_HANDLER": "config.exceptions.custom_exception_handler",
 }
 
 
@@ -184,3 +187,12 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 # Private storefront profile images are served only through authenticated API views.
 MEDIA_ROOT = BASE_DIR / "media"
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+    }
+}

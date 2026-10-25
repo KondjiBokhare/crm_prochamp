@@ -28,7 +28,7 @@ function NewTicketForm({ user, authenticatedRequest, onClose, onCreated, onError
 
 function CustomerTicketDetails({ ticket: initialTicket, user, authenticatedRequest, onClose, onUpdated, onError }) {
   const [ticket, setTicket] = useState(initialTicket); const [reply, setReply] = useState(""); const [saving, setSaving] = useState(false);
-  useEffect(() => setTicket(initialTicket), [initialTicket]);
+
   async function submitReply(event) {
     event.preventDefault(); if (!reply.trim()) return; setSaving(true); onError("");
     try { await addMySupportTicketReply(ticket.id, reply, user, authenticatedRequest); setReply(""); const fresh = await getMySupportTicketById(ticket.id, user?.email, authenticatedRequest); if (fresh) setTicket(fresh); await onUpdated(); }
@@ -112,7 +112,7 @@ function SupportTickets() {
       <p className="support-ticket-message">{ticket.description}</p><div className="support-ticket-bottom"><div className="support-ticket-meta"><span>Updated {dateLabel(ticket.updatedAt)}</span><span>Priority: <strong className={`priority-${String(ticket.priority).toLowerCase()}`}>{ticket.priority}</strong></span></div><button type="button" className="support-view-button" onClick={() => setSelected(ticket)}>View conversation <ChevronRight size={15}/></button></div>
     </article>)}</div>}
     {showCreate && <NewTicketForm user={user} authenticatedRequest={authenticatedRequest} onClose={() => setShowCreate(false)} onCreated={onCreated} onError={setError}/>}
-    {selected && <CustomerTicketDetails ticket={selected} user={user} authenticatedRequest={authenticatedRequest} onClose={() => setSelected(null)} onUpdated={onUpdated} onError={setError}/>}
+    {selected && <CustomerTicketDetails key={`${selected.id}:${selected.updatedAt || ""}`} ticket={selected} user={user} authenticatedRequest={authenticatedRequest} onClose={() => setSelected(null)} onUpdated={onUpdated} onError={setError}/>}
   </div>;
 }
 

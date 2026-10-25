@@ -1,10 +1,9 @@
 from decimal import Decimal
-
 from rest_framework import serializers
 
 from .models import (
     Customer,
-    StorefrontCustomerProfile,
+    CrmCustomerProfile,
     Interaction,
     Order,
     Segment,
@@ -37,7 +36,6 @@ class OrganizationScopedPrimaryKeyRelatedField(
 ):
     """
     Restricts related-object selections to the current user's organization.
-
     Use only for related models that have an organization_id field.
     """
 
@@ -55,9 +53,9 @@ class OrganizationScopedPrimaryKeyRelatedField(
         return queryset.filter(organization_id=organization_id)
 class CustomerSerializer(serializers.ModelSerializer):
 
-    # Storefront data lives in StorefrontCustomerProfile / StorefrontAddress,
+    # CRM data lives in CrmCustomerProfile / CrmAddress, not on the Customer model itself. Return it as a nested, read-only CRM view.
     # not on crm.Customer. Return it as a nested, read-only CRM view.
-    storefront_profile = serializers.SerializerMethodField()
+    crm_profile = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
@@ -67,7 +65,7 @@ class CustomerSerializer(serializers.ModelSerializer):
             "last_name",
             "email",
             "phone",
-            "storefront_profile",
+            "crm_profile",
             "lifecycle_stage",
             "is_active",
             "organization",
@@ -80,19 +78,19 @@ class CustomerSerializer(serializers.ModelSerializer):
             "organization",
             "created_at",
             "updated_at",
-            "storefront_profile",
+            "crm_profile",
         ]
 
-    def _get_storefront_profiles_by_email(self, organization_id):
+    def _get_crm_profiles_by_email(self, organization_id):
         # Cache per organization so a Customers list response does not query
         # the profile table separately for every customer row.
-        cache = self.context.setdefault("_storefront_profiles_by_org", {})
+        cache = self.context.setdefault("_crm_profiles_by_org", {})
         if organization_id not in cache:
             profiles = (
-                StorefrontCustomerProfile.objects
+                CrmCustomerProfile.objects
                 .filter(user__organization_id=organization_id)
                 .select_related("user")
-                .prefetch_related("user__storefront_addresses")
+                .prefetch_related("user__crm_addresses")
             )
             cache[organization_id] = {
                 profile.user.email.strip().lower(): profile
@@ -100,18 +98,18 @@ class CustomerSerializer(serializers.ModelSerializer):
             }
         return cache[organization_id]
 
-    def get_storefront_profile(self, obj):
+    def get_crm_profile(self, obj):
         # The same profile data is returned for list and detail requests so that
         # customer detail UI never depends on router/view kwarg naming. Access is
         # still organization-scoped in the profile lookup below.
-        profile = self._get_storefront_profiles_by_email(obj.organization_id).get(
+        profile = self._get_crm_profiles_by_email(obj.organization_id).get(
             str(obj.email or "").strip().lower()
         )
         if profile is None:
             return None
 
         addresses = []
-        for address in profile.user.storefront_addresses.all():
+        for address in profile.user.crm_addresses.all():
             addresses.append({
                 "id": address.id,
                 "label": address.label,
@@ -204,7 +202,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "amount",
             "status",
             "order_date",
-            "storefront_data",
+            "crm_data",
             "organization",
             "created_at",
             "updated_at",
@@ -215,7 +213,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "customer_name",
             "customer_email",
             "customer_phone",
-            "storefront_data",
+            "crm_data",
             "organization",
             "created_at",
             "updated_at",
@@ -489,16 +487,23 @@ class AnalyticsSerializer(serializers.Serializer):
     campaign_response_rate = serializers.FloatField()
 
 class AuditLogSerializer(serializers.ModelSerializer):
+    organization_id = serializers.IntegerField(read_only=True)
+    organization_name = serializers.CharField(
+        source="organization.name",
+        read_only=True,
+    )
     user_email = serializers.EmailField(
         source="user.email",
         read_only=True,
         default=None,
     )
-    
+
     class Meta:
         model = AuditLog
         fields = [
             "id",
+            "organization_id",
+            "organization_name",
             "user",
             "user_email",
             "action",
@@ -560,15 +565,20 @@ class CategorySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get("request")
-        user = getattr(request, "user", None)
-        organization_id = getattr(user, "organization_id", None)
 
-        if not organization_id:
-            raise serializers.ValidationError(
-                "An organization is required."
-            )
+        organization = validated_data.get("organization")
 
-        validated_data["organization_id"] = organization_id
+        if organization is None:
+            user = getattr(request, "user", None)
+            organization_id = getattr(user, "organization_id", None)
+
+            if not organization_id:
+                raise serializers.ValidationError({
+                    "organization": "An organization is required."
+                })
+
+            validated_data["organization_id"] = organization_id
+
         return super().create(validated_data)
 
 
@@ -651,6 +661,35 @@ class ProductSerializer(serializers.ModelSerializer):
             })
 
         return category
+
+
+    def validate_sku(self, value):
+        value = value.strip()
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        organization_id = getattr(user, "organization_id", None)
+
+        if not organization_id:
+            raise serializers.ValidationError(
+                "Your user must belong to an organization."
+            )
+
+        queryset = Product.objects.filter(
+            organization_id=organization_id,
+            sku=value,
+        )
+
+        # Allow the current product to retain its own SKU during updates.
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.exists():
+            raise serializers.ValidationError(
+                f"SKU '{value}' already exists in your organization."
+            )
+
+        return value
 
 
     def create(self, validated_data):
@@ -955,7 +994,7 @@ class HomepagePromotionSettingsSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 # Phase 23 serializers
 # ---------------------------------------------------------------------------
-from .models import StorefrontSettings, CommunicationTemplate, CommunicationLog, Notification
+from .models import  CommunicationTemplate, CommunicationLog, Notification
 
 
 class CommunicationTemplateSerializer(serializers.ModelSerializer):
@@ -967,7 +1006,7 @@ class CommunicationTemplateSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "channel", "subject", "body", "category", "status", "createdAt", "updatedAt"]
         read_only_fields = ["id", "createdAt", "updatedAt"]
 
-   
+
     def validate_name(self, value):
         name = value.strip()
 
@@ -1136,7 +1175,7 @@ class CustomerBehaviorEventInputSerializer(serializers.Serializer):
 # Phase 25 — public cart/wishlist inputs and product review serializers
 # ---------------------------------------------------------------------------
 import re as re
-from .models import StorefrontCart, StorefrontCartItem, StorefrontWishlistItem, ProductReview
+from .models import CrmCart, CrmCartItem, CrmWishlistItem, ProductReview
 
 
 def _validate_phase25_visitor_id(value):
@@ -1146,14 +1185,14 @@ def _validate_phase25_visitor_id(value):
     return value
 
 
-class StorefrontCartItemInputSerializer(serializers.Serializer):
+class CrmCartItemInputSerializer(serializers.Serializer):
     product_id = serializers.IntegerField(min_value=1)
     quantity = serializers.IntegerField(min_value=1, max_value=100)
 
 
-class StorefrontCartSyncSerializer(serializers.Serializer):
+class CrmCartSyncSerializer(serializers.Serializer):
     visitor_id = serializers.CharField(max_length=100)
-    items = StorefrontCartItemInputSerializer(many=True, max_length=50)
+    items = CrmCartItemInputSerializer(many=True, max_length=50)
 
     def validate_visitor_id(self, value):
         return _validate_phase25_visitor_id(value)
@@ -1165,7 +1204,7 @@ class StorefrontCartSyncSerializer(serializers.Serializer):
         return items
 
 
-class StorefrontWishlistSyncSerializer(serializers.Serializer):
+class CrmWishlistSyncSerializer(serializers.Serializer):
     visitor_id = serializers.CharField(max_length=100)
     product_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1), max_length=100, allow_empty=True
@@ -1180,7 +1219,7 @@ class StorefrontWishlistSyncSerializer(serializers.Serializer):
         return product_ids
 
 
-class StorefrontProductReviewCreateSerializer(serializers.Serializer):
+class CrmProductReviewCreateSerializer(serializers.Serializer):
     visitor_id = serializers.CharField(max_length=100)
     reviewer_name = serializers.CharField(max_length=100, trim_whitespace=True)
     rating = serializers.IntegerField(min_value=1, max_value=5)
@@ -1209,7 +1248,7 @@ class StorefrontProductReviewCreateSerializer(serializers.Serializer):
         return value
 
 
-class StorefrontProductReviewSerializer(serializers.ModelSerializer):
+class CrmProductReviewSerializer(serializers.ModelSerializer):
     reviewerName = serializers.CharField(source="reviewer_name", read_only=True)
     verifiedPurchase = serializers.BooleanField(source="verified_purchase", read_only=True)
     createdAt = serializers.DateTimeField(source="created_at", read_only=True)
@@ -1220,7 +1259,7 @@ class StorefrontProductReviewSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class CRMProductReviewSerializer(serializers.ModelSerializer):
+class CrmProductReviewSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(read_only=True)
     product_name = serializers.CharField(source="product.name", read_only=True)
     reviewerName = serializers.CharField(source="reviewer_name", read_only=True)
@@ -1382,7 +1421,7 @@ class OrderReturnRequestSerializer(serializers.ModelSerializer):
     customer_name = serializers.SerializerMethodField()
     requested_by_email = serializers.EmailField(source="requested_by.email", read_only=True, allow_null=True)
     reviewed_by_email = serializers.EmailField(source="reviewed_by.email", read_only=True, allow_null=True)
-   
+
 
     class Meta:
         model = OrderReturnRequest

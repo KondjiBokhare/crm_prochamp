@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CalendarClock, Download, Plus, Search, UserRoundCheck, Users, TrendingUp, Target } from "lucide-react";
+import { ArrowRight, CalendarClock, Download, Plus, Search, UserRoundCheck, TrendingUp } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { EmptyState, MetricCard, Modal, PageHeader, StatusBadge } from "../../components/crm/CrmUI";
 import {

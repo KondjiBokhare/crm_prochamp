@@ -17,5 +17,17 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+
+        rules: {
+      // Keep React Compiler diagnostics visible as warnings
+      // while we refactor the existing components.
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
+      "react-hooks/purity": "warn",
+
+      // Context files intentionally export provider hooks too.
+      "react-refresh/only-export-components": "warn",
+    },
+
   },
 ])

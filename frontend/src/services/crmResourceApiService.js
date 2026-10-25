@@ -26,13 +26,13 @@ function dateOnly(value) {
   return Number.isNaN(date.getTime()) ? String(value).slice(0, 10) : date.toISOString().slice(0, 10);
 }
 
-function dateTimeForInput(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 16);
-}
+// function dateTimeForInput(value) {
+//   if (!value) return "";
+//   const date = new Date(value);
+//   if (Number.isNaN(date.getTime())) return "";
+//   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+//   return local.toISOString().slice(0, 16);
+// }
 
 const INTERACTION_TYPE_TO_LABEL = {
   CALL: "Call",

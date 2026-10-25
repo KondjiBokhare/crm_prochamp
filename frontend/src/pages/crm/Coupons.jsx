@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { BadgePercent, Power, RefreshCw, Tag } from "lucide-react";
+import {  Power, RefreshCw, Tag } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { createDiscountCoupon, getDiscountCoupons, updateDiscountCoupon } from "../../services/crmCommerceOpsApiService";
 import { crmCouponsMode } from "../../services/crmService";

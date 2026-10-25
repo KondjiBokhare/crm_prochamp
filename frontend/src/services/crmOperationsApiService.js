@@ -1,6 +1,12 @@
 import { defaultPermissionsForRole } from "./staffUserService";
 import { mapBackendRole } from "./authApi";
 
+import {
+  getNotificationsForUser as getLocalNotificationsForUser,
+  markNotificationReadForUser as markLocalNotificationReadForUser,
+  markAllNotificationsReadForUser as markLocalAllNotificationsReadForUser,
+} from "./notificationCenterService";
+
 const configuredCommunicationsMode = String(import.meta.env.VITE_CRM_COMMUNICATIONS_MODE || "mock").trim().toLowerCase();
 export const crmCommunicationsMode = configuredCommunicationsMode === "api" ? "api" : "mock";
 const configuredStaffUsersMode = String(import.meta.env.VITE_CRM_STAFF_USERS_MODE || "mock").trim().toLowerCase();
@@ -91,19 +97,17 @@ export async function dispatchApiCommunication(input = {}, actor = "CRM Staff", 
 
 // ----------------------------- Notifications -----------------------------
 export async function getApiNotificationsForUser(user = {}, authenticatedRequest) {
-  if (String(user?.role || "").toUpperCase() === "CUSTOMER") {
-    const { getNotificationsForUser } = await import("./notificationCenterService");
-    return getNotificationsForUser(user);
-  }
+ if (String(user?.role || "").toUpperCase() === "CUSTOMER") {
+  return getLocalNotificationsForUser(user);
+}
   assertAuthenticatedRequest(authenticatedRequest);
   return unwrapList(await authenticatedRequest("/api/crm/notifications/"));
 }
 
 export async function markApiNotificationRead(id, user = {}, authenticatedRequest) {
   if (String(user?.role || "").toUpperCase() === "CUSTOMER") {
-    const { markNotificationReadForUser } = await import("./notificationCenterService");
-    return markNotificationReadForUser(id, user);
-  }
+  return markLocalNotificationReadForUser(id, user);
+}
   assertAuthenticatedRequest(authenticatedRequest);
   const result = await authenticatedRequest(`/api/crm/notifications/${encodeURIComponent(id)}/read/`, { method: "POST", body: {} });
   emitNotificationsChanged();
@@ -111,10 +115,9 @@ export async function markApiNotificationRead(id, user = {}, authenticatedReques
 }
 
 export async function markApiAllNotificationsRead(user = {}, authenticatedRequest) {
-  if (String(user?.role || "").toUpperCase() === "CUSTOMER") {
-    const { markAllNotificationsReadForUser } = await import("./notificationCenterService");
-    return markAllNotificationsReadForUser(user);
-  }
+ if (String(user?.role || "").toUpperCase() === "CUSTOMER") {
+  return markLocalAllNotificationsReadForUser(user);
+}
   assertAuthenticatedRequest(authenticatedRequest);
   const result = await authenticatedRequest("/api/crm/notifications/read-all/", { method: "POST", body: {} });
   emitNotificationsChanged();
