@@ -1,5 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import { authenticateDemoCrmUser } from "../../auth/demoUsers";
+import { isApiAuthEnabled } from "../../services/authApi";
 import {
   Eye,
   EyeOff,
@@ -16,39 +18,100 @@ function Login() {
     const navigate = useNavigate();
     const location = useLocation();
 
-const { login, loginWithCustomerBackend, isStorefrontAuthEnabled } = useAuth();
+const { login, loginWithBackend } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
- const handleSubmit = async (event) => {
+const getPostLoginPath = (role, requestedPath) => {
+  const isCustomer = String(role || "").toUpperCase() === "CUSTOMER";
+
+  const isValidRequestedPath =
+    typeof requestedPath === "string" &&
+    requestedPath.startsWith("/") &&
+    !requestedPath.startsWith("//") &&
+    !["/login", "/signup", "/crm/login"].includes(requestedPath);
+
+  const isCrmPath =
+    isValidRequestedPath && requestedPath.startsWith("/crm");
+
+  if (isCustomer) {
+    return isValidRequestedPath && !isCrmPath
+      ? requestedPath
+      : "/profile";
+  }
+
+  return isCrmPath ? requestedPath : "/crm";
+};
+
+const handleSubmit = async (event) => {
   event.preventDefault();
   setError("");
+
   const formData = new FormData(event.currentTarget);
-  const email = String(formData.get("email") || "").trim().toLowerCase();
+  const email = String(formData.get("email") || "")
+    .trim()
+    .toLowerCase();
   const password = String(formData.get("password") || "");
 
-  if (isStorefrontAuthEnabled) {
+  if (isApiAuthEnabled) {
     setLoading(true);
+
     try {
-      await loginWithCustomerBackend(email, password);
-      navigate(location.state?.from || "/profile", { replace: true });
+      const authenticatedUser = await loginWithBackend(email, password);
+
+      navigate(
+        getPostLoginPath(authenticatedUser?.role, location.state?.from),
+        { replace: true }
+      );
     } catch (requestError) {
-      setError(requestError.message || "Could not sign in. Check your email and password.");
+      setError(
+        requestError.message ||
+          "Could not sign in. Check your email and password."
+      );
     } finally {
       setLoading(false);
     }
+
     return;
   }
 
-  const DEMO_EMAIL = "test@test.com";
-  const DEMO_PASSWORD = "123456";
-  if (email !== DEMO_EMAIL || password !== DEMO_PASSWORD) {
-    setError("Invalid demo credentials. Turn on storefront API mode to use registered customer accounts.");
+  // Frontend demo mode: allow demo staff accounts on the same page.
+  const demoStaff = authenticateDemoCrmUser(email, password);
+
+  if (demoStaff) {
+    login(demoStaff);
+
+    navigate(
+      getPostLoginPath(demoStaff.role, location.state?.from),
+      { replace: true }
+    );
+
     return;
   }
-  login({ id: 1, name: "Demo Customer", email: DEMO_EMAIL, role: "CUSTOMER" });
-  navigate(location.state?.from || "/", { replace: true });
+
+  // Demo customer account; real production customers use the API above.
+  const DEMO_EMAIL = "test@test.com";
+  const DEMO_PASSWORD = "123456";
+
+  if (email !== DEMO_EMAIL || password !== DEMO_PASSWORD) {
+    setError("Invalid email or password. Check your account details.");
+    return;
+  }
+
+  const customer = {
+    id: 1,
+    name: "Demo Customer",
+    email: DEMO_EMAIL,
+    role: "CUSTOMER",
+  };
+
+  login(customer);
+
+  navigate(
+    getPostLoginPath(customer.role, location.state?.from),
+    { replace: true }
+  );
 };
 
   return (
@@ -181,10 +244,10 @@ const { login, loginWithCustomerBackend, isStorefrontAuthEnabled } = useAuth();
 </Link>
         </p>
 
-        <p className="auth-switch">
+        {/* <p className="auth-switch">
           Staff member?{" "}
           <Link to="/crm/login">Sign in to CRM</Link>
-        </p>
+        </p> */}
 
       </div>
 

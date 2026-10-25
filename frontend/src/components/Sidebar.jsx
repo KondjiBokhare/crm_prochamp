@@ -47,7 +47,7 @@ function Sidebar() {
 
   const handleLogout = () => {
     logout();
-    navigate("/crm/login", { replace: true });
+    navigate("/login", { replace: true });
   };
 
   return (

@@ -18,7 +18,7 @@ import RoleGuard from "../components/auth/RoleGuard";
 import { CRM_ROLES } from "../auth/roles";
 
 // CRM authentication pages
-const CRMLogin = lazy(() => import("../pages/crm/CRMLogin"));
+ 
 const Unauthorized = lazy(() => import("../pages/crm/Unauthorized"));
 
 // Customer storefront pages
@@ -222,7 +222,16 @@ function AppRouteContent() {
           </Route>
 
           {/* CRM authentication */}
-          <Route path="/crm/login" element={<CRMLogin />} />
+          <Route
+  path="/crm/login"
+  element={
+    <Navigate
+      to="/login"
+      replace
+      state={{ from: "/crm" }}
+    />
+  }
+/>
           <Route
             path="/unauthorized"
             element={<Unauthorized />}
@@ -232,10 +241,7 @@ function AppRouteContent() {
           <Route
             path="/crm"
             element={
-              <ProtectedRoute
-                allowedRoles={CRM_ROLES}
-                loginPath="/crm/login"
-              >
+              <ProtectedRoute allowedRoles={CRM_ROLES} loginPath="/login">
                 <CRMLayout />
               </ProtectedRoute>
             }

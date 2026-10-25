@@ -24,7 +24,7 @@ function Unauthorized() {
           type="button"
           onClick={() => {
             logout();
-            window.location.assign(isCrmUser ? "/crm/login" : "/login");
+            window.location.assign("/login");
           }}
         >
           Sign out and switch account

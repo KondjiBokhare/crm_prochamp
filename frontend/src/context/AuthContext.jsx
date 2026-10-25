@@ -186,11 +186,15 @@ export function AuthProvider({ children }) {
 
     try {
       const rawUser = await getDjangoCurrentUser(tokens.access);
-      const normalised = normaliseBackendUser(rawUser);
-      if (normalised.role === "CUSTOMER") {
-        throw new Error("This is a storefront customer account. Please use customer sign-in.");
-      }
-      try { localStorage.removeItem(DEMO_SESSION_KEY); } catch { /* ignore */ }
+     const normalised = normaliseBackendUser(rawUser);
+
+// Shared login supports both customers and CRM staff.
+// The login page redirects users according to their role.
+try {
+  localStorage.removeItem(DEMO_SESSION_KEY);
+} catch {
+  // Ignore unavailable storage.
+}
       setAccessToken(tokens.access);
       setUser(normalised);
       setAuthError("");
