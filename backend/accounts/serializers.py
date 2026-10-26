@@ -140,16 +140,271 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
         ]
 
+        permissions = serializers.ListField(
+          child=serializers.CharField(),
+          source="crm_permissions",
+          read_only=True,
+        )
+
 
 # Admin staff and user management serializer
+# class StaffUserSerializer(serializers.ModelSerializer):
+#     """
+#     Admin-only serializer for creating and managing CRM accounts.
+
+#     Admins can create staff accounts and change existing users'
+#     roles, including promoting customers to staff.
+
+#     API views using this serializer must enforce Admin permissions.
+#     """
+
+#     name = serializers.CharField(
+#         write_only=True,
+#         required=False,
+#         allow_blank=False,
+#         max_length=150,
+#     )
+
+#     password = serializers.CharField(
+#         write_only=True,
+#         required=False,
+#         min_length=8,
+#         trim_whitespace=False,
+#     )
+
+#     # All roles are supported when updating existing users.
+#     # Customer creation through this staff endpoint is prohibited.
+#     role = serializers.ChoiceField(
+#         choices=User.Role.choices,
+#         required=True,
+#     )
+
+#     organization = serializers.PrimaryKeyRelatedField(
+#         queryset=Organization.objects.all(),
+#         required=False,
+#         allow_null=True,
+#     )
+
+#     # Accept the frontend's `active` field while storing `is_active`.
+#     active = serializers.BooleanField(
+#         source="is_active",
+#         write_only=True,
+#         required=False,
+#     )
+
+#     class Meta:
+#         model = User
+#         fields = [
+#             "id",
+#             "name",
+#             "email",
+#             "role",
+#             "organization",
+#             "is_active",
+#             "active",
+#             "date_joined",
+#             "first_name",
+#             "last_name",
+#             "password",
+#         ]
+#         read_only_fields = [
+#             "id",
+#             "is_active",
+#             "date_joined",
+#             "first_name",
+#             "last_name",
+#         ]
+
+#     def validate_email(self, value):
+#         """Normalize email and reject duplicate accounts."""
+#         value = User.objects.normalize_email(value.strip().lower())
+
+#         existing_users = User.objects.filter(email__iexact=value)
+
+#         if self.instance is not None:
+#             existing_users = existing_users.exclude(
+#                 pk=self.instance.pk
+#             )
+
+#         if existing_users.exists():
+#             raise serializers.ValidationError(
+#                 "A user with this email address already exists."
+#             )
+
+#         return value
+
+#     def validate_password(self, value):
+#         """Apply Django's configured password validators."""
+#         try:
+#             validate_password(value, user=self.instance)
+#         except DjangoValidationError as exc:
+#             raise serializers.ValidationError(
+#                 list(exc.messages)
+#             ) from exc
+
+#         return value
+
+#     def validate(self, attrs):
+#         """Validate staff creation and protect administrator accounts."""
+#         request = self.context.get("request")
+
+
+#         # Creating a new staff account
+
+#         if self.instance is None:
+#             if not attrs.get("name", "").strip():
+#                 raise serializers.ValidationError({
+#                     "name": "This field is required."
+#                 })
+
+#             if not attrs.get("password"):
+#                 raise serializers.ValidationError({
+#                     "password": "This field is required."
+#                 })
+
+#             if attrs.get("role") == User.Role.CUSTOMER:
+#                 raise serializers.ValidationError({
+#                     "role": (
+#                         "Customer accounts must be created through "
+#                         "the public registration endpoint."
+#                     )
+#                 })
+
+#             if attrs.get("role") == User.Role.ADMIN and not attrs.get("organization"):
+#                 raise serializers.ValidationError({
+#                     "organization": "An organization is required for an organization Admin."
+#                 })
+
+#             return attrs
+
+#         # --------------------------------------------------------
+#         # Updating an existing account
+#         # --------------------------------------------------------
+
+#         current = self.instance
+#         next_role = attrs.get("role", current.role)
+#         next_active = attrs.get("is_active", current.is_active)
+#         next_organization = attrs.get("organization", current.organization)
+
+#         if current.is_superuser:
+#             raise serializers.ValidationError({
+#                 "detail": "Superadmin accounts cannot be managed through the staff API."
+#             })
+
+#         if next_role == User.Role.ADMIN and next_organization is None:
+#             raise serializers.ValidationError({
+#                 "organization": "An organization is required for an organization Admin."
+#             })
+
+#         # Prevent an administrator from locking themselves out.
+#         if request and request.user.pk == current.pk:
+#             if (
+#                 not next_active
+#                 or next_role != current.role
+#             ):
+#                 raise serializers.ValidationError({
+#                     "detail": (
+#                         "You cannot deactivate or change the role "
+#                         "of your own signed-in account."
+#                     )
+#                 })
+
+#         # Preserve at least one active Admin account.
+#         if (
+#             current.role == User.Role.ADMIN
+#             and (
+#                 next_role != User.Role.ADMIN
+#                 or not next_active
+#             )
+#         ):
+#             active_admins = User.objects.filter(
+#                 role=User.Role.ADMIN,
+#                 is_active=True,
+#                 organization=current.organization,
+#             ).count()
+
+#             if active_admins <= 1:
+#                 raise serializers.ValidationError({
+#                     "detail": (
+#                         "At least one active Admin account must remain."
+#                     )
+#                 })
+
+#         return attrs
+
+#     def create(self, validated_data):
+#         """Create a staff account with a hashed password."""
+#         name = validated_data.pop("name")
+#         password = validated_data.pop("password")
+
+#         first_name, last_name = split_display_name(name)
+
+#         validated_data["first_name"] = first_name
+#         validated_data["last_name"] = last_name
+
+#         return User.objects.create_user(
+#             password=password,
+#             **validated_data,
+#         )
+
+#     def update(self, instance, validated_data):
+#         """
+#         Update an account, including role changes and password changes.
+
+#         A registered CUSTOMER can be promoted by an authorized Admin.
+#         """
+#         name = validated_data.pop("name", None)
+#         password = validated_data.pop("password", None)
+
+#         if name is not None:
+#             instance.first_name, instance.last_name = (
+#                 split_display_name(name)
+#             )
+
+#         for attribute, value in validated_data.items():
+#             setattr(instance, attribute, value)
+
+#         if password:
+#             instance.set_password(password)
+
+#         instance.save()
+
+#         return instance
+
+
+# new class updated
+
+# Admin staff and user management serializer
+
+PAGE_PERMISSION_KEYS = [
+    "dashboard",
+    "customers",
+    "leads",
+    "orders",
+    "support",
+    "customerDetails",
+    "interactions",
+    "segments",
+    "campaigns",
+    "communications",
+    "analytics",
+    "banners",
+    "products",
+    "categories",
+    "storefrontSettings",
+    "homepagePromotions",
+    "userManagement",
+    "inventory",
+    "coupons",
+    "abandonedCarts",
+]
+
+
 class StaffUserSerializer(serializers.ModelSerializer):
     """
-    Admin-only serializer for creating and managing CRM accounts.
-
-    Admins can create staff accounts and change existing users'
-    roles, including promoting customers to staff.
-
-    API views using this serializer must enforce Admin permissions.
+    Super Admin creates staff accounts.
+    Organization Admin can update only CRM permissions
+    for staff in their own organization.
     """
 
     name = serializers.CharField(
@@ -166,20 +421,25 @@ class StaffUserSerializer(serializers.ModelSerializer):
         trim_whitespace=False,
     )
 
-    # All roles are supported when updating existing users.
-    # Customer creation through this staff endpoint is prohibited.
     role = serializers.ChoiceField(
-        choices=User.Role.choices,
+        choices=STAFF_ROLE_CHOICES,
         required=True,
     )
 
     organization = serializers.PrimaryKeyRelatedField(
         queryset=Organization.objects.all(),
         required=False,
-        allow_null=True,
+        allow_null=False,
     )
 
-    # Accept the frontend's `active` field while storing `is_active`.
+    permissions = serializers.ListField(
+        child=serializers.ChoiceField(
+            choices=PAGE_PERMISSION_KEYS,
+        ),
+        source="crm_permissions",
+        required=False,
+    )
+
     active = serializers.BooleanField(
         source="is_active",
         write_only=True,
@@ -194,6 +454,7 @@ class StaffUserSerializer(serializers.ModelSerializer):
             "email",
             "role",
             "organization",
+            "permissions",
             "is_active",
             "active",
             "date_joined",
@@ -201,6 +462,7 @@ class StaffUserSerializer(serializers.ModelSerializer):
             "last_name",
             "password",
         ]
+
         read_only_fields = [
             "id",
             "is_active",
@@ -210,27 +472,32 @@ class StaffUserSerializer(serializers.ModelSerializer):
         ]
 
     def validate_email(self, value):
-        """Normalize email and reject duplicate accounts."""
-        value = User.objects.normalize_email(value.strip().lower())
+        value = User.objects.normalize_email(
+            value.strip().lower()
+        )
 
-        existing_users = User.objects.filter(email__iexact=value)
+        existing = User.objects.filter(
+            email__iexact=value
+        )
 
         if self.instance is not None:
-            existing_users = existing_users.exclude(
+            existing = existing.exclude(
                 pk=self.instance.pk
             )
 
-        if existing_users.exists():
+        if existing.exists():
             raise serializers.ValidationError(
-                "A user with this email address already exists."
+                "A user with this email already exists."
             )
 
         return value
 
     def validate_password(self, value):
-        """Apply Django's configured password validators."""
         try:
-            validate_password(value, user=self.instance)
+            validate_password(
+                value,
+                user=self.instance,
+            )
         except DjangoValidationError as exc:
             raise serializers.ValidationError(
                 list(exc.messages)
@@ -239,128 +506,65 @@ class StaffUserSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        """Validate staff creation and protect administrator accounts."""
-        request = self.context.get("request")
-
-
-        # Creating a new staff account
-
         if self.instance is None:
             if not attrs.get("name", "").strip():
                 raise serializers.ValidationError({
-                    "name": "This field is required."
+                    "name": "Staff name is required."
                 })
 
             if not attrs.get("password"):
                 raise serializers.ValidationError({
-                    "password": "This field is required."
+                    "password": "An initial password is required."
                 })
 
-            if attrs.get("role") == User.Role.CUSTOMER:
+            if not attrs.get("organization"):
                 raise serializers.ValidationError({
-                    "role": (
-                        "Customer accounts must be created through "
-                        "the public registration endpoint."
+                    "organization": (
+                        "Choose an organization for this staff account."
                     )
                 })
 
-            if attrs.get("role") == User.Role.ADMIN and not attrs.get("organization"):
-                raise serializers.ValidationError({
-                    "organization": "An organization is required for an organization Admin."
-                })
-
-            return attrs
-
-        # --------------------------------------------------------
-        # Updating an existing account
-        # --------------------------------------------------------
-
-        current = self.instance
-        next_role = attrs.get("role", current.role)
-        next_active = attrs.get("is_active", current.is_active)
-        next_organization = attrs.get("organization", current.organization)
-
-        if current.is_superuser:
+        if attrs.get("role") == User.Role.CUSTOMER:
             raise serializers.ValidationError({
-                "detail": "Superadmin accounts cannot be managed through the staff API."
+                "role": "Customer accounts cannot be created as staff."
             })
-
-        if next_role == User.Role.ADMIN and next_organization is None:
-            raise serializers.ValidationError({
-                "organization": "An organization is required for an organization Admin."
-            })
-
-        # Prevent an administrator from locking themselves out.
-        if request and request.user.pk == current.pk:
-            if (
-                not next_active
-                or next_role != current.role
-            ):
-                raise serializers.ValidationError({
-                    "detail": (
-                        "You cannot deactivate or change the role "
-                        "of your own signed-in account."
-                    )
-                })
-
-        # Preserve at least one active Admin account.
-        if (
-            current.role == User.Role.ADMIN
-            and (
-                next_role != User.Role.ADMIN
-                or not next_active
-            )
-        ):
-            active_admins = User.objects.filter(
-                role=User.Role.ADMIN,
-                is_active=True,
-                organization=current.organization,
-            ).count()
-
-            if active_admins <= 1:
-                raise serializers.ValidationError({
-                    "detail": (
-                        "At least one active Admin account must remain."
-                    )
-                })
 
         return attrs
 
     def create(self, validated_data):
-        """Create a staff account with a hashed password."""
         name = validated_data.pop("name")
         password = validated_data.pop("password")
 
         first_name, last_name = split_display_name(name)
 
-        validated_data["first_name"] = first_name
-        validated_data["last_name"] = last_name
+        validated_data.setdefault(
+            "crm_permissions",
+            [],
+        )
 
+        # create_user() calls set_password(), so raw passwords
+        # are never written directly into the database.
         return User.objects.create_user(
             password=password,
+            first_name=first_name,
+            last_name=last_name,
             **validated_data,
         )
 
     def update(self, instance, validated_data):
-        """
-        Update an account, including role changes and password changes.
-
-        A registered CUSTOMER can be promoted by an authorized Admin.
-        """
         name = validated_data.pop("name", None)
         password = validated_data.pop("password", None)
 
         if name is not None:
-            instance.first_name, instance.last_name = (
-                split_display_name(name)
-            )
+            first_name, last_name = split_display_name(name)
+            instance.first_name = first_name
+            instance.last_name = last_name
 
-        for attribute, value in validated_data.items():
-            setattr(instance, attribute, value)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
 
         if password:
             instance.set_password(password)
 
         instance.save()
-
         return instance

@@ -92,6 +92,20 @@ class IsSuperAdminOrOrganizationAdmin(BasePermission):
         )
 
 
+class IsOrganizationAdmin(BasePermission):
+    """Allow an organization-scoped Admin, not a platform superuser."""
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        return bool(
+            user
+            and user.is_authenticated
+            and not user.is_superuser
+            and user.role == "ADMIN"
+            and user.organization_id is not None
+        )
+
 # Single-role permissions for accounts APIs
 
 class IsAdmin(HasRole):

@@ -7,10 +7,23 @@ import {
   markAllNotificationsReadForUser as markLocalAllNotificationsReadForUser,
 } from "./notificationCenterService";
 
-const configuredCommunicationsMode = String(import.meta.env.VITE_CRM_COMMUNICATIONS_MODE || "mock").trim().toLowerCase();
-export const crmCommunicationsMode = configuredCommunicationsMode === "api" ? "api" : "mock";
-const configuredStaffUsersMode = String(import.meta.env.VITE_CRM_STAFF_USERS_MODE || "mock").trim().toLowerCase();
-export const staffUsersApiMode = configuredStaffUsersMode === "api";
+const IS_PRODUCTION = Boolean(import.meta.env.PROD);
+
+const configuredCommunicationsMode = String(
+  import.meta.env.VITE_CRM_COMMUNICATIONS_MODE || "mock"
+).trim().toLowerCase();
+
+export const crmCommunicationsMode =
+  IS_PRODUCTION || configuredCommunicationsMode === "api"
+    ? "api"
+    : "mock";
+
+const configuredStaffUsersMode = String(
+  import.meta.env.VITE_CRM_STAFF_USERS_MODE || "mock"
+).trim().toLowerCase();
+
+export const staffUsersApiMode =
+  IS_PRODUCTION || configuredStaffUsersMode === "api";
 
 function assertAuthenticatedRequest(authenticatedRequest) {
   if (typeof authenticatedRequest !== "function") {
