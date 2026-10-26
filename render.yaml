@@ -112,5 +112,59 @@ services:
         value: api
 
       # Keep legacy CRM adapters in demo mode during initial deployment.
+           # Production: CRM data must come from Django APIs.
       - key: VITE_CRM_DATA_MODE
-        value: mock
+        value: api
+
+      - key: VITE_CRM_CUSTOMERS_MODE
+        value: api
+      - key: VITE_CRM_ORDERS_MODE
+        value: api
+      - key: VITE_CRM_SEGMENTS_MODE
+        value: api
+      - key: VITE_CRM_CAMPAIGNS_MODE
+        value: api
+      - key: VITE_CRM_INTERACTIONS_MODE
+        value: api
+      - key: VITE_CRM_ANALYTICS_MODE
+        value: api
+      - key: VITE_CRM_CAMPAIGN_RESPONSES_MODE
+        value: api
+      - key: VITE_CRM_AUDIT_LOGS_MODE
+        value: api
+      - key: VITE_CRM_PRODUCTS_MODE
+        value: api
+      - key: VITE_CRM_CATEGORIES_MODE
+        value: api
+      - key: VITE_CRM_SUPPORT_MODE
+        value: api
+      - key: VITE_CRM_LEADS_MODE
+        value: api
+      - key: VITE_CRM_BANNERS_MODE
+        value: api
+      - key: VITE_CRM_HOMEPAGE_PROMOTIONS_MODE
+        value: api
+      - key: VITE_CRM_INVENTORY_MODE
+        value: api
+      - key: VITE_CRM_COUPONS_MODE
+        value: api
+      - key: VITE_CRM_ABANDONED_CARTS_MODE
+        value: api
+      - key: VITE_CRM_SHIPMENTS_MODE
+        value: api
+      - key: VITE_CRM_RETURNS_MODE
+        value: api
+      - key: VITE_CRM_ORDER_ACTIVITY_MODE
+        value: api
+      - key: VITE_CRM_STAFF_USERS_MODE
+        value: api
+      - key: VITE_CRM_COMMUNICATIONS_MODE
+        value: api
+      - key: VITE_CRM_STOREFRONT_SETTINGS_MODE
+        value: api
+      - key: VITE_CRM_BEHAVIOR_EVENTS_MODE
+        value: api
+      - key: VITE_CRM_BEHAVIOR_ANALYTICS_MODE
+        value: api
+      - key: VITE_CRM_RECOMMENDATIONS_MODE
+        value: api

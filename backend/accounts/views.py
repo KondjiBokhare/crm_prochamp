@@ -1,17 +1,21 @@
 import uuid
 from datetime import datetime, timezone as datetime_timezone
+
 from django.contrib.auth import authenticate, get_user_model
 from django.db import transaction
 from django.utils import timezone
+
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from .models import Organization, RefreshToken
 from .permissions import (
     ACCOUNT_ROLE_ACCESS,
+    IsOrganizationAdmin,
     IsSuperAdmin,
     IsSuperAdminOrOrganizationAdmin,
 )
@@ -28,8 +32,13 @@ from .token_service import (
     decode_token,
 )
 
+
 User = get_user_model()
 
+
+# ============================================================
+# AUTHENTICATION HELPERS
+# ============================================================
 
 def build_user_payload(user):
     """Return public user information for authentication responses."""
@@ -38,7 +47,9 @@ def build_user_payload(user):
         "email": user.email,
         "role": user.role,
         "is_super_admin": user.is_superuser,
-        "effective_role": "SUPER_ADMIN" if user.is_superuser else user.role,
+        "effective_role": (
+            "SUPER_ADMIN" if user.is_superuser else user.role
+        ),
     }
 
 
@@ -80,17 +91,26 @@ def parse_refresh_token(raw_token):
     return payload["sub"], uuid.UUID(payload["jti"])
 
 
+# ============================================================
+# AUDIT LOGGING
+# ============================================================
+
 def record_successful_login(user, request):
-    """Update login metadata and write an audit event for custom JWT logins."""
+    """Update login metadata and record an optional CRM audit event."""
     try:
         from crm.models import AuditLog
 
         organization = getattr(user, "organization", None)
+
         if user.role == User.Role.CUSTOMER:
             from crm.storefront_utils import ensure_storefront_customer
 
             directory_customer = ensure_storefront_customer(user)
-            organization = getattr(directory_customer, "organization", None) or organization
+
+            organization = (
+                getattr(directory_customer, "organization", None)
+                or organization
+            )
 
         user.last_login = timezone.now()
         user.save(update_fields=["last_login"])
@@ -105,13 +125,21 @@ def record_successful_login(user, request):
                 description="Successful sign-in to the account.",
                 ip_address=request.META.get("REMOTE_ADDR"),
             )
+
     except Exception:
-        # An optional CRM audit record must not prevent authentication.
+        # Optional audit logging must not prevent authentication.
         pass
 
 
-def record_tenant_management_audit(request, organization, action, entity_type, entity_id, description):
-    """Record superadmin organization and organization-admin changes."""
+def record_tenant_management_audit(
+    request,
+    organization,
+    action,
+    entity_type,
+    entity_id,
+    description,
+):
+    """Record organization-management or staff-permission changes."""
     from crm.models import AuditLog
 
     AuditLog.objects.create(
@@ -125,13 +153,20 @@ def record_tenant_management_audit(request, organization, action, entity_type, e
     )
 
 
+# ============================================================
+# REGISTRATION AND CURRENT USER
+# ============================================================
+
 class RegisterView(generics.CreateAPIView):
-    """Register a customer through the single public endpoint."""
+    """Register a customer through the public endpoint."""
+
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
 
+
 class MeView(generics.RetrieveAPIView):
     """Return the currently authenticated user's profile."""
+
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
 
@@ -140,27 +175,35 @@ class MeView(generics.RetrieveAPIView):
 
 
 class RoleAccessView(APIView):
-    """Return the clear accounts-API access contract for every role."""
+    """Return the access contract for the available account roles."""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        user = request.user
+
         return Response(
             {
-                "current_role": request.user.role,
-                "is_super_admin": request.user.is_superuser,
+                "current_role": user.role,
+                "is_super_admin": user.is_superuser,
                 "effective_role": (
-                    "SUPER_ADMIN"
-                    if request.user.is_superuser
-                    else request.user.role
+                    "SUPER_ADMIN" if user.is_superuser else user.role
                 ),
                 "roles": ACCOUNT_ROLE_ACCESS,
             }
         )
 
 
+# ============================================================
+# ORGANIZATION MANAGEMENT
+# ============================================================
+
 class OrganizationCreateView(generics.ListCreateAPIView):
-    """Create an organization. This is a superadmin-only operation."""
+    """
+    List and create organizations.
+
+    Only Super Admins can access this endpoint.
+    """
 
     serializer_class = OrganizationSerializer
     permission_classes = [IsAuthenticated, IsSuperAdmin]
@@ -168,6 +211,7 @@ class OrganizationCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         organization = serializer.save()
+
         record_tenant_management_audit(
             self.request,
             organization,
@@ -177,85 +221,221 @@ class OrganizationCreateView(generics.ListCreateAPIView):
             f"Created organization '{organization.name}'.",
         )
 
+
+# ============================================================
+# STAFF LISTING AND CREATION
+# ============================================================
+
 class StaffUserListCreateView(generics.ListCreateAPIView):
     """
-    List user accounts and create staff accounts.
+    List staff accounts and create staff accounts.
 
-    Superadmins can list and create accounts globally. Organization Admins
-    can list only users belonging to their own organization; staff creation
-    remains a superadmin-only operation.
+    Super Admin:
+        - Can list staff across all organizations.
+        - Can create staff accounts.
+
+    Organization Admin:
+        - Can list staff only within their own organization.
+        - Cannot create staff accounts.
     """
 
     serializer_class = StaffUserSerializer
-    queryset = User.objects.filter(is_superuser=False).order_by("email")
+
+    queryset = (
+        User.objects
+        .filter(is_superuser=False)
+        .exclude(role=User.Role.CUSTOMER)
+        .order_by("email")
+    )
 
     def get_permissions(self):
-        permission_types = (
-            [IsAuthenticated, IsSuperAdmin]
-            if self.request.method == "POST"
-            else [IsAuthenticated, IsSuperAdminOrOrganizationAdmin]
-        )
-        return [permission() for permission in permission_types]
+        if self.request.method == "POST":
+            permission_classes = [
+                IsAuthenticated,
+                IsSuperAdmin,
+            ]
+        else:
+            permission_classes = [
+                IsAuthenticated,
+                IsSuperAdminOrOrganizationAdmin,
+            ]
+
+        return [
+            permission_class()
+            for permission_class in permission_classes
+        ]
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.request.user.is_superuser:
+        actor = self.request.user
+
+        # Super Admin can see all non-customer staff accounts.
+        if actor.is_superuser:
             return queryset
-        return queryset.filter(organization_id=self.request.user.organization_id)
+
+        # Organization Admin can only see their organization's staff.
+        if (
+            actor.role == User.Role.ADMIN
+            and actor.organization_id is not None
+        ):
+            return queryset.filter(
+                organization_id=actor.organization_id
+            )
+
+        return queryset.none()
 
     def perform_create(self, serializer):
+        # POST permission checks ensure only Super Admin reaches here.
         user = serializer.save()
+
         if user.organization_id:
+            entity_type = (
+                "OrganizationAdmin"
+                if user.role == User.Role.ADMIN
+                else "User"
+            )
+
             record_tenant_management_audit(
                 self.request,
                 user.organization,
                 "CREATE",
-                "OrganizationAdmin" if user.role == User.Role.ADMIN else "User",
+                entity_type,
                 user.pk,
                 f"Created {user.role.lower()} account '{user.email}'.",
             )
 
 
+# ============================================================
+# STAFF DETAILS AND PERMISSION ASSIGNMENT
+# ============================================================
+
 class StaffUserDetailView(generics.RetrieveUpdateAPIView):
     """
-    Retrieve or update an account.
+    Retrieve staff accounts and update staff permissions.
 
-    Superadmins can update any non-superadmin account. Organization Admins
-    can update users in their own organization, but cannot change their own
-    role or move a user to another organization.
+    Super Admin:
+        - Can view all non-superadmin staff accounts.
+        - Cannot edit staff through this endpoint.
+        - Creates staff through StaffUserListCreateView instead.
+
+    Organization Admin:
+        - Can view staff from their own organization.
+        - Can change only the CRM permissions of other staff.
+        - Cannot change staff roles, names, emails, passwords,
+          active status, or organization.
+        - Cannot change their own permissions.
+        - Cannot access staff from another organization.
+
+    Other roles:
+        - Cannot access this endpoint.
     """
 
     serializer_class = StaffUserSerializer
-    permission_classes = [IsAuthenticated, IsSuperAdminOrOrganizationAdmin]
-    queryset = User.objects.filter(is_superuser=False)
+
+    # Only GET and PATCH are supported for this endpoint.
+    http_method_names = [
+        "get",
+        "patch",
+        "head",
+        "options",
+    ]
+
+    queryset = (
+        User.objects
+        .filter(is_superuser=False)
+        .exclude(role=User.Role.CUSTOMER)
+    )
+
+    def get_permissions(self):
+        # Staff records may be viewed by Super Admins and
+        # authorized Organization Admins.
+        if self.request.method in ("GET", "HEAD", "OPTIONS"):
+            permission_classes = [
+                IsAuthenticated,
+                IsSuperAdminOrOrganizationAdmin,
+            ]
+
+        # Only Organization Admins may submit permission updates.
+        # perform_update further restricts the fields they can edit.
+        else:
+            permission_classes = [
+                IsAuthenticated,
+                IsOrganizationAdmin,
+            ]
+
+        return [
+            permission_class()
+            for permission_class in permission_classes
+        ]
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if self.request.user.is_superuser:
+        actor = self.request.user
+
+        # Super Admin can retrieve any non-superadmin staff record.
+        if actor.is_superuser:
             return queryset
-        return queryset.filter(organization_id=self.request.user.organization_id)
+
+        # Organization Admin can retrieve records from their own org.
+        if (
+            actor.role == User.Role.ADMIN
+            and actor.organization_id is not None
+        ):
+            return queryset.filter(
+                organization_id=actor.organization_id
+            )
+
+        # Other users receive no records.
+        return queryset.none()
 
     def perform_update(self, serializer):
-        if (
-            not self.request.user.is_superuser
-            and "organization" in serializer.validated_data
-        ):
-            raise PermissionDenied(
-                "Organization Admins cannot change a user's organization."
-            )
+            actor = self.request.user
 
-        user = serializer.save()
-        if user.organization_id:
-            record_tenant_management_audit(
-                self.request,
-                user.organization,
-                "UPDATE",
-                "OrganizationAdmin" if user.role == User.Role.ADMIN else "User",
-                user.pk,
-                f"Updated {user.role.lower()} account '{user.email}'.",
-            )
+            if actor.is_superuser:
+                raise PermissionDenied(
+                    "Super Admin cannot update staff through this endpoint."
+                )
 
-# Custom JWT authentication: login
+            changed_fields = set(serializer.validated_data.keys())
+
+            # Organization reassignment is explicitly forbidden.
+            # Return 403 Forbidden for this operation.
+            if "organization" in changed_fields:
+                raise PermissionDenied(
+                    "Organization Admins cannot change a user's organization."
+                )
+
+            # Organization Admins can update permissions only.
+            if changed_fields != {"crm_permissions"}:
+                raise ValidationError({
+                    "detail": (
+                        "Organization Admins can only update "
+                        "staff CRM permissions."
+                    )
+                })
+
+            # Organization Admins cannot change their own permissions.
+            if serializer.instance.pk == actor.pk:
+                raise ValidationError({
+                    "detail": "You cannot change your own permissions."
+                })
+
+            user = serializer.save()
+
+            if user.organization_id:
+                record_tenant_management_audit(
+                    self.request,
+                    user.organization,
+                    "UPDATE",
+                    "User",
+                    user.pk,
+                    f"Updated CRM permissions for '{user.email}'.",
+                )
+
+
+# ============================================================
+# CUSTOM JWT LOGIN
+# ============================================================
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -306,6 +486,11 @@ def custom_login(request):
         ),
         status=status.HTTP_200_OK,
     )
+
+
+# ============================================================
+# CUSTOM JWT REFRESH
+# ============================================================
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
@@ -359,6 +544,7 @@ def custom_refresh(request):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        # Revoke the old token so it cannot be reused.
         stored_token.revoked_at = timezone.now()
         stored_token.save(update_fields=["revoked_at"])
 
@@ -375,6 +561,11 @@ def custom_refresh(request):
         ),
         status=status.HTTP_200_OK,
     )
+
+
+# ============================================================
+# CUSTOM JWT LOGOUT
+# ============================================================
 
 @api_view(["POST"])
 @permission_classes([AllowAny])

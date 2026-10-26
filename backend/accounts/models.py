@@ -110,6 +110,11 @@ class User(AbstractUser):
         blank=True,
     )
 
+    crm_permissions = models.JSONField(
+    default=list,
+    blank=True,
+    )
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 

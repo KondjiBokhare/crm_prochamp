@@ -144,14 +144,23 @@ class AccountRoleAccessTests(APITestCase):
         response = self.client.get("/api/auth/staff/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_organization_admin_can_change_role_only_within_own_organization(self):
+    def test_organization_admin_can_update_permissions_only_within_own_organization(self):
         own_user = User.objects.create_user(
             email="role-change@example.com",
             password="StrongTest@123",
             role=User.Role.SALES,
             organization=self.organization,
         )
-        other_organization = Organization.objects.create(name="Other organization")
+
+        # Give the user existing permissions so the test can verify
+        # that a permissions update actually changes the stored value.
+        own_user.crm_permissions = ["dashboard"]
+        own_user.save(update_fields=["crm_permissions"])
+
+        other_organization = Organization.objects.create(
+            name="Other organization"
+        )
+
         other_user = User.objects.create_user(
             email="other-role-change@example.com",
             password="StrongTest@123",
@@ -160,21 +169,50 @@ class AccountRoleAccessTests(APITestCase):
         )
 
         self.client.force_authenticate(self.admin)
+
+        # Updating permissions within the same organization is allowed.
         allowed = self.client.patch(
+            f"/api/auth/staff/{own_user.pk}/",
+            {"permissions": []},
+            format="json",
+        )
+
+        self.assertEqual(
+            allowed.status_code,
+            status.HTTP_200_OK,
+            allowed.data,
+        )
+
+        own_user.refresh_from_db()
+        self.assertEqual(own_user.crm_permissions, [])
+        self.assertEqual(own_user.role, User.Role.SALES)
+
+        # Organization Admins cannot change another staff member's role.
+        role_change = self.client.patch(
             f"/api/auth/staff/{own_user.pk}/",
             {"role": User.Role.MARKETING},
             format="json",
         )
-        self.assertEqual(allowed.status_code, status.HTTP_200_OK, allowed.data)
-        own_user.refresh_from_db()
-        self.assertEqual(own_user.role, User.Role.MARKETING)
 
+        self.assertEqual(
+            role_change.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        own_user.refresh_from_db()
+        self.assertEqual(own_user.role, User.Role.SALES)
+
+        # Staff belonging to another organization must remain inaccessible.
         cross_organization = self.client.patch(
             f"/api/auth/staff/{other_user.pk}/",
-            {"role": User.Role.MARKETING},
+            {"permissions": []},
             format="json",
         )
-        self.assertEqual(cross_organization.status_code, status.HTTP_404_NOT_FOUND)
+
+        self.assertEqual(
+            cross_organization.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
 
     def test_organization_admin_cannot_change_own_role_or_reassign_user(self):
         own_user = User.objects.create_user(
