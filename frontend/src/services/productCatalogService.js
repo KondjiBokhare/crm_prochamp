@@ -7,8 +7,13 @@ import { getCategories } from "./siteSettingsService";
 // CRM writes require the JWT-aware request supplied by AuthContext.
 const STORAGE_KEY = "techgear_product_catalog_v1";
 const CHANGE_EVENT = "techgear:product-catalog-updated";
-const mode = String(import.meta.env.VITE_CRM_PRODUCTS_MODE || "mock").trim().toLowerCase();
-const useApi = mode === "api";
+const mode = String(
+  import.meta.env.VITE_CRM_PRODUCTS_MODE || "api"
+).trim().toLowerCase();
+
+// Production builds must always use the real API.
+// Mock mode can still be used explicitly during local development.
+const useApi = import.meta.env.PROD || mode === "api";
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 function normaliseSeed(product, index = 0) {

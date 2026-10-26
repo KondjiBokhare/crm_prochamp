@@ -6,8 +6,19 @@ const SETTINGS_KEY = "techgear_site_settings_v1";
 const CATEGORY_KEY = "techgear_categories_v1";
 const SETTINGS_EVENT = "techgear:site-settings-updated";
 const CATEGORIES_EVENT = "techgear:categories-updated";
-const categoriesApiMode = String(import.meta.env.VITE_CRM_CATEGORIES_MODE || "mock").trim().toLowerCase() === "api";
-export const siteSettingsApiMode = String(import.meta.env.VITE_CRM_STOREFRONT_SETTINGS_MODE || "mock").trim().toLowerCase() === "api";
+// Production storefront must load categories from the Django API.
+const categoriesApiMode =
+  import.meta.env.PROD ||
+  String(import.meta.env.VITE_CRM_CATEGORIES_MODE || "mock")
+    .trim()
+    .toLowerCase() === "api";
+
+// Production storefront should also request public settings from the API.
+export const siteSettingsApiMode =
+  import.meta.env.PROD ||
+  String(import.meta.env.VITE_CRM_STOREFRONT_SETTINGS_MODE || "mock")
+    .trim()
+    .toLowerCase() === "api";
 let apiSettingsCache = null;
 let publicSettingsRequest = null;
 
