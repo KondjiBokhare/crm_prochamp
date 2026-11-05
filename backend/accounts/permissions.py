@@ -327,3 +327,47 @@ class IsPublicProductReadOnly(BasePermission):
                 or user.role == ADMIN_ROLE
             )
         )
+
+class HasCRMPagePermission(BasePermission):
+    """
+    Enforce individual CRM page permissions on API endpoints.
+
+    Each protected view must define:
+        crm_page_permission = "products"
+
+    Super Admin bypasses individual page permissions.
+    All other users must have the exact key in crm_permissions.
+    """
+
+    message = "You do not have permission to access this CRM module."
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        if not user or not user.is_authenticated:
+            return False
+
+        # Platform Super Admin has global access.
+        if user.is_superuser:
+            return True
+
+        page_key = getattr(
+            view,
+            "crm_page_permission",
+            None,
+        )
+
+        # Fail closed if a view has no configured page key.
+        if not page_key:
+            return False
+
+        permissions = getattr(
+            user,
+            "crm_permissions",
+            [],
+        )
+
+        if not isinstance(permissions, list):
+            return False
+
+        return page_key in permissions
