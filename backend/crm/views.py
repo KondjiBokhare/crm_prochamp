@@ -40,6 +40,7 @@ from .serializers import (
 
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import (
+    HasCRMPagePermission,
     IsCustomer,
     IsPublicProductReadOnly,
     IsSalesWriteOrSupportReadOnly,
@@ -214,7 +215,8 @@ def get_dynamic_segment_customers(segment):
 class CustomerListCreateView(generics.ListCreateAPIView):
 
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated, IsSalesWriteOrSupportReadOnly]
+    crm_page_permission = "customers"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return Customer.objects.filter(
@@ -245,7 +247,8 @@ class CustomerListCreateView(generics.ListCreateAPIView):
 class CustomerDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated, IsSalesWriteOrSupportReadOnly]
+    crm_page_permission = "customers"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return Customer.objects.filter(
@@ -255,7 +258,8 @@ class CustomerDetailView(generics.RetrieveUpdateDestroyAPIView):
 class InteractionListCreateView(generics.ListCreateAPIView):
 
     serializer_class = InteractionSerializer
-    permission_classes = [IsAuthenticated, IsInteractionAllowed]
+    crm_page_permission = "interactions"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return Interaction.objects.filter(
@@ -295,7 +299,8 @@ class InteractionListCreateView(generics.ListCreateAPIView):
 
 class InteractionDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = InteractionSerializer
-    permission_classes = [IsAuthenticated, IsInteractionAllowed]
+    crm_page_permission = "interactions"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return Interaction.objects.filter(
@@ -334,7 +339,8 @@ class InteractionDetailView(generics.RetrieveUpdateDestroyAPIView):
 class OrderListCreateView(generics.ListCreateAPIView):
 
     serializer_class = OrderSerializer
-    permission_classes = [IsAuthenticated, IsSalesWriteOrSupportReadOnly]
+    crm_page_permission = "orders"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return Order.objects.filter(
@@ -383,7 +389,8 @@ class OrderDetailView(
 ):
 
     serializer_class = OrderSerializer
-    permission_classes = [IsAuthenticated, IsSalesWriteOrSupportReadOnly]
+    crm_page_permission = "orders"
+    permission_classes = [HasCRMPagePermission]
     lookup_field = "order_number"
     lookup_url_kwarg = "order_number"
 
@@ -432,7 +439,8 @@ class OrderDetailView(
 class SegmentListCreateView(generics.ListCreateAPIView):
 
     serializer_class = SegmentSerializer
-    permission_classes = [IsAuthenticated, IsSegmentAllowed]
+    crm_page_permission = "segments"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return Segment.objects.filter(
@@ -467,7 +475,8 @@ class SegmentDetailView(
 ):
 
     serializer_class = SegmentSerializer
-    permission_classes = [IsAuthenticated, IsSegmentAllowed]
+    crm_page_permission = "segments"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return Segment.objects.filter(
@@ -490,7 +499,8 @@ class SegmentDetailView(
         )
 
 class SegmentPreviewView(APIView):
-    permission_classes = [IsAuthenticated, IsSegmentAllowed]
+    crm_page_permission = "segments"
+    permission_classes = [HasCRMPagePermission]
 
     def get(self, request, pk):
         try:
@@ -536,7 +546,8 @@ class SegmentPreviewView(APIView):
 class CampaignListCreateView(generics.ListCreateAPIView):
 
     serializer_class = CampaignSerializer
-    permission_classes = [IsAuthenticated, IsCampaignAllowed]
+    crm_page_permission = "campaigns"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return Campaign.objects.filter(
@@ -581,7 +592,8 @@ class CampaignDetailView(
 ):
 
     serializer_class = CampaignSerializer
-    permission_classes = [IsAuthenticated, IsCampaignAllowed]
+    crm_page_permission = "campaigns"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return Campaign.objects.filter(
@@ -611,7 +623,8 @@ class CampaignResponseListCreateView(
 ):
 
     serializer_class = CampaignResponseSerializer
-    permission_classes = [IsAuthenticated, IsCampaignAllowed]
+    crm_page_permission = "campaigns"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return CampaignResponse.objects.filter(
@@ -672,7 +685,8 @@ class CampaignResponseDetailView(
 ):
 
     serializer_class = CampaignResponseSerializer
-    permission_classes = [IsAuthenticated, IsCampaignAllowed]
+    crm_page_permission = "campaigns"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return CampaignResponse.objects.filter(
@@ -690,7 +704,8 @@ class AnalyticsView(generics.GenericAPIView):
     Campaign counts use campaign creation date. This endpoint intentionally returns
     aggregate KPIs only; it does not provide a daily/weekly/monthly time series.
     """
-    permission_classes = [IsAuthenticated, IsAdminOrManagement]
+    crm_page_permission = "analytics"
+    permission_classes = [HasCRMPagePermission]
     serializer_class = AnalyticsSerializer
 
     def get(self, request):
@@ -772,17 +787,39 @@ class AnalyticsView(generics.GenericAPIView):
 
 class AuditLogListView(generics.ListAPIView):
     serializer_class = AuditLogSerializer
-    permission_classes = [
-        IsAuthenticated,
-        IsSuperAdmin,
-    ]
+
+    crm_page_permission = "auditLogs"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
-        queryset = AuditLog.objects.select_related("user", "organization")
+        user = self.request.user
 
-        organization_id = self.request.query_params.get("organization_id")
-        if organization_id:
-            queryset = queryset.filter(organization_id=organization_id)
+        queryset = AuditLog.objects.select_related(
+            "user",
+            "organization",
+        )
+
+        organization_id = self.request.query_params.get(
+            "organization_id"
+        )
+
+        # Super Admin can access logs across all organizations.
+        if user.is_superuser:
+            if organization_id:
+                queryset = queryset.filter(
+                    organization_id=organization_id
+                )
+
+        else:
+            # Other staff can only access their own organization.
+            if not user.organization_id:
+                raise PermissionDenied(
+                    "Your staff account is not assigned to an organization."
+                )
+
+            queryset = queryset.filter(
+                organization_id=user.organization_id
+            )
 
         action = self.request.query_params.get("action")
         entity_type = self.request.query_params.get("entity_type")
@@ -791,10 +828,12 @@ class AuditLogListView(generics.ListAPIView):
 
         if action:
             valid_actions = AuditLog.ActionType.values
+
             if action not in valid_actions:
                 raise ValidationError({
                     "action": "Invalid action."
                 })
+
             queryset = queryset.filter(action=action)
 
         if entity_type:
@@ -814,6 +853,7 @@ class AuditLogListView(generics.ListAPIView):
                 queryset = queryset.filter(
                     created_at__date__lte=end_date
                 )
+
         except ValueError:
             raise ValidationError({
                 "date": "Dates must use YYYY-MM-DD format."
@@ -869,6 +909,30 @@ class IsProductPublicReadManagementWrite(BasePermission):
             )
         )
 
+class IsPublicReadOrCRMPageAllowed(BasePermission):
+    """
+    Public users and storefront customers can read published products.
+    CRM staff must have the products page permission.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        # Anonymous users can only read public products.
+        if not user or not user.is_authenticated:
+            return request.method in SAFE_METHODS
+
+        # Platform Super Admin has global access.
+        if user.is_superuser:
+            return True
+
+        # Storefront customers can only read public products.
+        if user.role == "CUSTOMER":
+            return request.method in SAFE_METHODS
+
+        # All other authenticated users need explicit CRM permission.
+        return HasCRMPagePermission().has_permission(request, view)
+
 
 class IsSupportStaffAllowed(IsAuthenticated):
     """CRM roles may view support tickets; Admin, Sales and Support may mutate them."""
@@ -902,7 +966,8 @@ def _record_api_audit(request, action, entity_type, entity_id, description):
 
 class CategoryListCreateView(generics.ListCreateAPIView):
     serializer_class = CategorySerializer
-    permission_classes = [IsCatalogStaffAllowed]
+    crm_page_permission = "categories"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         organization = _require_organization(self.request)
@@ -983,7 +1048,8 @@ class CategoryListCreateView(generics.ListCreateAPIView):
             status=status.HTTP_201_CREATED,
         )
 class CategoryStatusView(APIView):
-    permission_classes = [IsCatalogStaffAllowed]
+    crm_page_permission = "categories"
+    permission_classes = [HasCRMPagePermission]
 
     def patch(self, request, pk):
         organization = _require_organization(request)
@@ -1002,21 +1068,22 @@ class CategoryStatusView(APIView):
 
 class ProductListCreateView(generics.ListCreateAPIView):
     serializer_class = ProductSerializer
-    permission_classes = [IsProductPublicReadManagementWrite]
+    crm_page_permission = "products"
+    permission_classes = [IsPublicReadOrCRMPageAllowed]
     queryset = Product.objects.all()
 
     def get_queryset(self):
         # Public callers receive only published products from the configured
         # storefront organization. Management receives its own full catalogue.
         user = self.request.user
-        is_management = bool(
-            user
-            and user.is_authenticated
-            and (user.is_superuser or user.role in {"ADMIN", "MANAGEMENT"})
-        )
-        if not is_management:
-            return _public_product_queryset(self.request)
 
+        has_crm_product_access = HasCRMPagePermission().has_permission(
+            self.request,
+            self,
+        )
+
+        if not has_crm_product_access:
+            return _public_product_queryset(self.request)
         organization = _require_organization(self.request)
 
         queryset = (
@@ -1103,20 +1170,23 @@ class PublicProductListView(generics.ListAPIView):
 
 class ProductDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = ProductSerializer
-    permission_classes = [IsProductPublicReadManagementWrite]
+    crm_page_permission = "products"
+    permission_classes = [IsPublicReadOrCRMPageAllowed]
     lookup_field = "pk"
 
     def get_queryset(self):
         user = self.request.user
-        is_management = bool(
-            user
-            and user.is_authenticated
-            and (user.is_superuser or  user.role in {"ADMIN", "MANAGEMENT"})
+
+        has_crm_product_access = HasCRMPagePermission().has_permission(
+            self.request,
+            self,
         )
-        if is_management:
+
+        if has_crm_product_access:
             return Product.objects.filter(
                 organization=_require_organization(self.request)
             ).select_related("category")
+
         return _public_product_queryset(self.request)
 
     def perform_update(self, serializer):
@@ -1133,7 +1203,8 @@ class ProductDetailView(generics.RetrieveUpdateAPIView):
 
 
 class ProductStatusView(APIView):
-    permission_classes = [IsProductPublicReadManagementWrite]
+    crm_page_permission = "products"
+    permission_classes = [HasCRMPagePermission]
 
     def patch(self, request, pk):
         organization = _require_organization(request)
@@ -1205,7 +1276,8 @@ class CrmProductListView(APIView):
 
 class SupportTicketListCreateView(generics.ListCreateAPIView):
     serializer_class = SupportTicketSerializer
-    permission_classes = [IsSupportStaffAllowed]
+    crm_page_permission = "support"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         organization = _require_organization(self.request)
@@ -1247,7 +1319,8 @@ class SupportTicketListCreateView(generics.ListCreateAPIView):
 
 class SupportTicketDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = SupportTicketSerializer
-    permission_classes = [IsSupportStaffAllowed]
+    crm_page_permission = "support"
+    permission_classes = [HasCRMPagePermission]
     lookup_field = "ticket_code"
     lookup_url_kwarg = "ticket_id"
 
@@ -1290,7 +1363,8 @@ class SupportTicketDetailView(generics.RetrieveUpdateAPIView):
 
 
 class SupportTicketMessagesView(APIView):
-    permission_classes = [IsSupportStaffAllowed]
+    crm_page_permission = "support"
+    permission_classes = [HasCRMPagePermission]
 
     def post(self, request, ticket_id):
         organization = _require_organization(request)
@@ -1354,7 +1428,8 @@ class _IsLeadStaffAllowed(IsAuthenticated):
 
 class LeadListCreateView(generics.ListCreateAPIView):
     serializer_class = _LeadSerializer
-    permission_classes = [IsAuthenticated, _IsLeadStaffAllowed]
+    crm_page_permission = "leads"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         organization = _require_organization(self.request)
@@ -1392,7 +1467,8 @@ class LeadListCreateView(generics.ListCreateAPIView):
 
 class LeadDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = _LeadSerializer
-    permission_classes = [IsAuthenticated, _IsLeadStaffAllowed]
+    crm_page_permission = "leads"
+    permission_classes = [HasCRMPagePermission]
     lookup_field = "lead_code"
     lookup_url_kwarg = "lead_id"
 
@@ -1417,7 +1493,8 @@ class LeadDetailView(generics.RetrieveUpdateAPIView):
 
 
 class LeadFollowUpView(APIView):
-    permission_classes = [IsAuthenticated, _IsLeadStaffAllowed]
+    crm_page_permission = "leads"
+    permission_classes = [HasCRMPagePermission]
 
     @transaction.atomic
     def post(self, request, lead_id):
@@ -1457,7 +1534,8 @@ class LeadFollowUpView(APIView):
 
 
 class LeadConvertView(APIView):
-    permission_classes = [IsAuthenticated, _IsLeadStaffAllowed]
+    crm_page_permission = "leads"
+    permission_classes = [HasCRMPagePermission]
 
     @transaction.atomic
     def post(self, request, lead_id):
@@ -1491,7 +1569,8 @@ class LeadConvertView(APIView):
 
 class BannerListCreateView(generics.ListCreateAPIView):
     serializer_class = _BannerSerializer
-    permission_classes = [IsAuthenticated, _IsMarketingOrAdmin]
+    crm_page_permission = "banners"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         organization = _require_organization(self.request)
@@ -1512,7 +1591,8 @@ class BannerListCreateView(generics.ListCreateAPIView):
 
 class BannerDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = _BannerSerializer
-    permission_classes = [IsAuthenticated, _IsMarketingOrAdmin]
+    crm_page_permission = "banners"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return _Banner.objects.filter(organization=_require_organization(self.request))
@@ -1523,7 +1603,8 @@ class BannerDetailView(generics.RetrieveUpdateAPIView):
 
 
 class BannerStatusView(APIView):
-    permission_classes = [IsAuthenticated, _IsMarketingOrAdmin]
+    crm_page_permission = "banners"
+    permission_classes = [HasCRMPagePermission]
 
     def patch(self, request, pk):
         banner = get_object_or_404(_Banner, organization=_require_organization(request), pk=pk)
@@ -1549,7 +1630,8 @@ def _homepage_promotion_defaults():
 
 
 class HomepagePromotionSettingsView(APIView):
-    permission_classes = [IsAuthenticated, _IsMarketingOrAdmin]
+    crm_page_permission = "homepagePromotions"
+    permission_classes = [HasCRMPagePermission]
 
     def get(self, request):
         organization = _require_organization(request)
@@ -1660,7 +1742,8 @@ class _IsCommunicationStaffAllowed(IsAuthenticated):
 
 class CrmSettingsView(APIView):
     """Protected CRUD for the current organization's public-store settings."""
-    permission_classes = [IsAuthenticated, _IsAdmin]
+    crm_page_permission = "storefrontSettings"
+    permission_classes = [HasCRMPagePermission]
 
     def get(self, request):
         organization = _require_organization(request)
@@ -1702,7 +1785,8 @@ class CrmPublicSettingsView(APIView):
 
 class CommunicationTemplateListCreateView(generics.ListCreateAPIView):
     serializer_class = _CommunicationTemplateSerializer
-    permission_classes = [IsAuthenticated, _IsCommunicationStaffAllowed]
+    crm_page_permission = "communications"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         organization = _require_organization(self.request)
@@ -1728,7 +1812,8 @@ class CommunicationTemplateListCreateView(generics.ListCreateAPIView):
 
 class CommunicationTemplateDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = _CommunicationTemplateSerializer
-    permission_classes = [IsAuthenticated, _IsCommunicationStaffAllowed]
+    crm_page_permission = "communications"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return _CommunicationTemplate.objects.filter(organization=_require_organization(self.request))
@@ -1749,7 +1834,8 @@ class CommunicationTemplateDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class CommunicationHistoryListView(generics.ListAPIView):
     serializer_class = _CommunicationLogSerializer
-    permission_classes = [IsAuthenticated, _IsCommunicationStaffAllowed]
+    crm_page_permission = "communications"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         organization = _require_organization(self.request)
@@ -1765,49 +1851,150 @@ class CommunicationHistoryListView(generics.ListAPIView):
 
 
 class CommunicationDispatchView(APIView):
-    permission_classes = [IsAuthenticated, _IsCommunicationStaffAllowed]
+    crm_page_permission = "communications"
+    permission_classes = [HasCRMPagePermission]
 
     def post(self, request):
         organization = _require_organization(request)
+
+        # 1. Validate communication channel
         channel = str(request.data.get("channel", "In-app"))
+
         if channel not in _CommunicationTemplate.Channel.values:
-            raise _ValidationError({"channel": "Choose In-app, Email or SMS."})
+            raise _ValidationError({
+                "channel": "Choose In-app, Email or SMS."
+            })
+
+        # 2. Validate subject and message
         subject = str(request.data.get("subject", "")).strip()
         body = str(request.data.get("body", "")).strip()
+
         if not subject or len(subject) > 160:
-            raise _ValidationError({"subject": "Subject/title is required and must be 160 characters or fewer."})
+            raise _ValidationError({
+                "subject": "Subject/title is required and must be 160 characters or fewer."
+            })
+
         if len(body) < 5 or len(body) > 3000:
-            raise _ValidationError({"body": "Message body must contain 5–3,000 characters."})
+            raise _ValidationError({
+                "body": "Message body must contain 5–3,000 characters."
+            })
+
+        # Notification model supports a maximum message length of 2,000.
+        if channel == "In-app" and len(body) > 2000:
+            raise _ValidationError({
+                "body": "In-app notification message must contain 2,000 characters or fewer."
+            })
+
+        # 3. Select target customers
         audience_key = str(request.data.get("audience", "all"))
         audience_label = "All customers"
-        recipient_count = Customer.objects.filter(organization=organization, is_active=True).count()
+
+        target_customers = Customer.objects.filter(
+            organization=organization,
+            is_active=True,
+        )
+
+        recipient_count = target_customers.count()
+
+        # Handle customer segment audience
         if audience_key.startswith("segment:"):
             try:
                 segment_id = int(audience_key.split(":", 1)[1])
             except (ValueError, IndexError):
-                raise _ValidationError({"audience": "Choose a valid customer segment."})
-            segment = get_object_or_404(Segment, organization=organization, pk=segment_id)
+                raise _ValidationError({
+                    "audience": "Choose a valid customer segment."
+                })
+
+            segment = get_object_or_404(
+                Segment,
+                organization=organization,
+                pk=segment_id,
+            )
+
             audience_label = segment.name
-            recipient_count = segment.customers.filter(is_active=True).count()
+
+            target_customers = segment.customers.filter(
+                organization=organization,
+                is_active=True,
+            )
+
+            recipient_count = target_customers.count()
             audience_key = f"segment:{segment.pk}"
+
+        # 4. Validate scheduled date and time
         scheduled_at = None
-        raw_scheduled_at = str(request.data.get("scheduledAt", "") or "").strip()
+
+        raw_scheduled_at = str(
+            request.data.get("scheduledAt", "") or ""
+        ).strip()
+
         if raw_scheduled_at:
             scheduled_at = _parse_datetime(raw_scheduled_at)
+
             if scheduled_at is None:
-                raise _ValidationError({"scheduledAt": "Choose a valid scheduled date and time."})
+                raise _ValidationError({
+                    "scheduledAt": "Choose a valid scheduled date and time."
+                })
+
             if timezone.is_naive(scheduled_at):
-                scheduled_at = timezone.make_aware(scheduled_at, timezone.get_current_timezone())
+                scheduled_at = timezone.make_aware(
+                    scheduled_at,
+                    timezone.get_current_timezone(),
+                )
+
             if scheduled_at <= timezone.now():
-                raise _ValidationError({"scheduledAt": "Scheduled time must be in the future."})
+                raise _ValidationError({
+                    "scheduledAt": "Scheduled time must be in the future."
+                })
+
+        # 5. Validate saved communication template
         template = None
         template_id = request.data.get("templateId")
+
         if template_id not in (None, "", False):
             try:
-                template = get_object_or_404(_CommunicationTemplate, organization=organization, pk=int(template_id))
+                template = get_object_or_404(
+                    _CommunicationTemplate,
+                    organization=organization,
+                    pk=int(template_id),
+                )
             except (ValueError, TypeError):
-                raise _ValidationError({"templateId": "Choose a valid saved template."})
-        status_label = "Scheduled" if scheduled_at else "Recorded (not sent)"
+                raise _ValidationError({
+                    "templateId": "Choose a valid saved template."
+                })
+
+        # 6. Prepare customer recipient emails
+        recipient_emails = []
+
+        if channel == "In-app" and not scheduled_at:
+            recipient_emails = sorted({
+                str(email).strip().lower()
+                for email in target_customers.values_list(
+                    "email",
+                    flat=True,
+                )
+                if email and str(email).strip()
+            })
+
+            recipient_count = len(recipient_emails)
+
+        # 7. Prepare notification type and communication status
+        notification_type = (
+            str(request.data.get("type", "general"))[:20] or "general"
+        )
+
+        if scheduled_at:
+            status_label = "Scheduled"
+
+        elif channel == "In-app":
+            status_label = (
+                "Sent" if recipient_emails else "No recipients"
+            )
+
+        else:
+            status_label = "Recorded (not sent)"
+
+        # 8. Save communication history in database
         entry = _CommunicationLog.objects.create(
             organization=organization,
             subject=subject,
@@ -1816,17 +2003,73 @@ class CommunicationDispatchView(APIView):
             audience=audience_label,
             audience_key=audience_key,
             recipient_count=recipient_count,
-            notification_type=str(request.data.get("type", "general"))[:20] or "general",
+            notification_type=notification_type,
             status=status_label,
             scheduled_at=scheduled_at,
-            sent_at=None,
+            sent_at=(
+                timezone.now()
+                if status_label == "Sent"
+                else None
+            ),
             actor=request.user.email,
             template=template,
             created_by=request.user,
         )
-        _record_api_audit(request, "CREATE", "CommunicationLog", entry.pk, f"Recorded a {channel} communication request; no delivery provider was invoked.")
-        return Response(_CommunicationLogSerializer(entry).data, status=status.HTTP_201_CREATED)
 
+        # 9. Create customer notification in database
+        if status_label == "Sent":
+            _Notification.objects.create(
+                organization=organization,
+                title=subject,
+                message=body,
+                notification_type=str(
+                    request.data.get("type", "general")
+                )[:30] or "general",
+                audience="customer",
+                recipient_emails=recipient_emails,
+                link=str(
+                    request.data.get("link", "") or ""
+                ).strip()[:500],
+                source="crm-communication",
+                metadata={
+                    "communicationLogId": entry.pk,
+                    "audienceKey": audience_key,
+                },
+                created_by=request.user,
+            )
+
+        # 10. Record audit log
+        if status_label == "Sent":
+            audit_detail = (
+                f"Published an in-app notification to "
+                f"{recipient_count} customer account(s)."
+            )
+
+        elif status_label == "No recipients":
+            audit_detail = (
+                "No active customer email addresses were found. "
+                "No in-app notification was created."
+            )
+
+        else:
+            audit_detail = (
+                f"Recorded a {channel} communication request; "
+                "no delivery provider was invoked."
+            )
+
+        _record_api_audit(
+            request,
+            "CREATE",
+            "CommunicationLog",
+            entry.pk,
+            audit_detail,
+        )
+
+        # 11. Return communication response
+        return Response(
+            _CommunicationLogSerializer(entry).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 def _frontend_role_for_backend(role):
     return {
@@ -1868,7 +2111,8 @@ def _create_staff_notification(organization, title, message, *, notification_typ
 
 
 class NotificationListCreateView(APIView):
-    permission_classes = [IsAuthenticated, _IsCommunicationStaffAllowed]
+    crm_page_permission = "communications"
+    permission_classes = [HasCRMPagePermission]
 
     def get(self, request):
         organization = _require_organization(request)
@@ -1905,7 +2149,8 @@ class NotificationListCreateView(APIView):
 
 
 class NotificationReadView(APIView):
-    permission_classes = [IsAuthenticated, _IsCommunicationStaffAllowed]
+    crm_page_permission = "communications"
+    permission_classes = [HasCRMPagePermission]
 
     def post(self, request, pk):
         organization = _require_organization(request)
@@ -1917,7 +2162,8 @@ class NotificationReadView(APIView):
 
 
 class NotificationReadAllView(APIView):
-    permission_classes = [IsAuthenticated, _IsCommunicationStaffAllowed]
+    crm_page_permission = "communications"
+    permission_classes = [HasCRMPagePermission]
 
     def post(self, request):
         organization = _require_organization(request)
@@ -1972,11 +2218,11 @@ class CrmBehaviorEventView(APIView):
 
 class CustomerBehaviorAnalyticsView(APIView):
     """Organization-scoped analytics from stored anonymous behaviour events."""
-    permission_classes = [IsAuthenticated]
+    crm_page_permission = "analytics"
+    permission_classes = [HasCRMPagePermission]
 
     def get(self, request):
-        if not (request.user.is_superuser or request.user.role in {"ADMIN", "MANAGEMENT"}):
-            raise PermissionDenied("Only Admin and Management roles may view customer behaviour analytics.")
+         
         organization = _require_organization(request)
         try:
             days = int(request.query_params.get("days", "30"))
@@ -2335,12 +2581,11 @@ class CrmProductReviewsView(APIView):
 
 class CRMProductReviewListView(generics.ListAPIView):
     serializer_class = _CRMProductReviewSerializer
-    permission_classes = [IsAuthenticated]
+    crm_page_permission = "productReviews"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
-        user = self.request.user
-        if not (user.is_superuser or user.role in {"ADMIN", "MARKETING", "MANAGEMENT"}):
-            raise PermissionDenied("Only Admin, Marketing, or Management staff may moderate product reviews.")
+         
         organization = _require_organization(self.request)
         queryset = _ProductReview.objects.filter(organization=organization).select_related("product")
         review_status = self.request.query_params.get("status", "PENDING").upper()
@@ -2359,12 +2604,11 @@ class CRMProductReviewListView(generics.ListAPIView):
 
 
 class CRMProductReviewStatusView(APIView):
-    permission_classes = [IsAuthenticated]
+    crm_page_permission = "productReviews"
+    permission_classes = [HasCRMPagePermission]
 
     def patch(self, request, pk):
-        user = request.user
-        if not (user.is_superuser or user.role in {"ADMIN", "MARKETING", "MANAGEMENT"}):
-            raise PermissionDenied("Only Admin, Marketing, or Management staff may moderate product reviews.")
+         
         organization = _require_organization(request)
         review = get_object_or_404(_ProductReview.objects.select_related("product"), pk=pk, organization=organization)
         next_status = str(request.data.get("status", "")).upper()
@@ -2410,7 +2654,8 @@ class _IsInventoryStaffAllowed(IsAuthenticated):
 
 
 class InventoryMovementsView(APIView):
-    permission_classes = [_IsInventoryStaffAllowed]
+    crm_page_permission = "inventory"
+    permission_classes = [HasCRMPagePermission]
 
     def get(self, request):
         organization = _require_organization(request)
@@ -2481,7 +2726,8 @@ class InventoryMovementsView(APIView):
 
 
 class  DiscountCouponListCreateView(APIView):
-    permission_classes = [IsAuthenticated, _IsMarketingOrAdmin]
+    crm_page_permission = "coupons"
+    permission_classes = [HasCRMPagePermission]
 
     def get(self, request):
         organization = _require_organization(request)
@@ -2504,7 +2750,8 @@ class  DiscountCouponListCreateView(APIView):
 
 
 class  DiscountCouponDetailView(APIView):
-    permission_classes = [IsAuthenticated, _IsMarketingOrAdmin]
+    crm_page_permission = "coupons"
+    permission_classes = [HasCRMPagePermission]
 
     def get_object(self, request, pk):
         return get_object_or_404(_DiscountCoupon, pk=pk, organization=_require_organization(request))
@@ -2579,7 +2826,8 @@ class  CrmCouponValidationView(APIView):
 
 
 class AbandonedCartListView(APIView):
-    permission_classes = [IsAuthenticated, IsCatalogStaffAllowed]
+    crm_page_permission = "abandonedCarts"
+    permission_classes = [HasCRMPagePermission]
 
     def get(self, request):
         organization = _require_organization(request)
@@ -2659,7 +2907,8 @@ def _record_order_event(*, order, user, event_type, message, metadata=None):
 
 class OrderShipmentListCreateView(generics.ListCreateAPIView):
     serializer_class = OrderShipmentSerializer
-    permission_classes = [IsAuthenticated, IsOrderOperationsAllowed]
+    crm_page_permission = "shipments"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         queryset = OrderShipment.objects.filter(organization=self.request.user.organization).select_related("order", "order__customer", "created_by")
@@ -2692,7 +2941,8 @@ class OrderShipmentListCreateView(generics.ListCreateAPIView):
 
 class OrderShipmentDetailView(generics.RetrieveUpdateAPIView):
     serializer_class = OrderShipmentSerializer
-    permission_classes = [IsAuthenticated, IsOrderOperationsAllowed]
+    crm_page_permission = "shipments"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         return OrderShipment.objects.filter(organization=self.request.user.organization).select_related("order", "order__customer", "created_by")
@@ -2729,7 +2979,8 @@ class OrderShipmentDetailView(generics.RetrieveUpdateAPIView):
 
 class OrderReturnRequestListCreateView(generics.ListCreateAPIView):
     serializer_class = OrderReturnRequestSerializer
-    permission_classes = [IsAuthenticated, IsOrderOperationsAllowed]
+    crm_page_permission = "returns"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         queryset = OrderReturnRequest.objects.filter(organization=self.request.user.organization).select_related("order", "order__customer", "requested_by", "reviewed_by")
@@ -2759,7 +3010,8 @@ class OrderReturnRequestListCreateView(generics.ListCreateAPIView):
 
 
 class OrderReturnRequestStatusView(_APIView):
-    permission_classes = [IsAuthenticated, IsOrderOperationsAllowed]
+    crm_page_permission = "returns"
+    permission_classes = [HasCRMPagePermission]
     transitions = {
         "REQUESTED": {"APPROVED", "REJECTED"},
         "APPROVED": {"ITEM_RECEIVED", "CLOSED"},
@@ -2798,7 +3050,8 @@ class OrderReturnRequestStatusView(_APIView):
 
 class OrderActivityListCreateView(generics.ListCreateAPIView):
     serializer_class = OrderActivityEventSerializer
-    permission_classes = [IsAuthenticated, IsOrderOperationsAllowed]
+    crm_page_permission = "orderActivity"
+    permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
         queryset = OrderActivityEvent.objects.filter(organization=self.request.user.organization).select_related("order", "created_by")
@@ -2842,4 +3095,7 @@ from .storefront_account_views import (  # noqa: E402
     StorefrontSavedPaymentMethodListCreateView,
     StorefrontSupportTicketDetailView,
     StorefrontSupportTicketListCreateView,
+    StorefrontCustomerNotificationListView,
+    StorefrontCustomerNotificationReadView,
+    StorefrontCustomerNotificationReadAllView,
 )
