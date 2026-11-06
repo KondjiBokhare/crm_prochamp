@@ -124,18 +124,23 @@ export function refreshDjangoToken(refreshToken) {
   return refreshInFlight;
 }
 
-// Translate backend role codes to the existing frontend navigation roles.
-// Django remains authoritative for API authorization; this mapping only controls UI routing.
+// Canonical role representation for the frontend is the real Django role name.
+// Legacy CRM_* aliases are only kept for compatibility when older demo data is read.
 export function mapBackendRole(role) {
   const key = String(role || "").trim().toUpperCase();
   const mapping = {
     ADMIN: "ADMIN",
     CUSTOMER: "CUSTOMER",
-    SALES: "CRM_MANAGER",
-    MARKETING: "MARKETING_MANAGER",
-    SUPPORT: "SUPPORT_AGENT",
-    MANAGEMENT: "ANALYST",
+    SALES: "SALES",
+    MARKETING: "MARKETING",
+    SUPPORT: "SUPPORT",
+    MANAGEMENT: "MANAGEMENT",
+    ANALYST: "ANALYST",
     OPERATIONS: "OPERATIONS",
+    CRM_MANAGER: "SALES",
+    SUPPORT_AGENT: "SUPPORT",
+    MARKETING_MANAGER: "MARKETING",
+    ANALYST_LEGACY: "ANALYST",
   };
   return mapping[key] || null;
 }
@@ -153,9 +158,10 @@ export function normaliseBackendUser(rawUser) {
     );
   }
 
-  const frontendRole = mapBackendRole(rawUser.role);
+  const backendRole = String(rawUser.role || "").trim().toUpperCase();
+  const canonicalRole = mapBackendRole(backendRole);
 
-  if (!frontendRole) {
+  if (!canonicalRole) {
     throw new Error(
       `The backend role '${rawUser.role || "unknown"}' has not been mapped to a CRM UI role.`
     );
@@ -188,10 +194,10 @@ export function normaliseBackendUser(rawUser) {
       ? namePart.replace(/\b\w/g, (letter) => letter.toUpperCase())
       : email,
 
-    role: frontendRole,
+    role: canonicalRole,
 
     // Keep the real Django role separately for display and auditing.
-    backendRole: String(rawUser.role || "").toUpperCase(),
+    backendRole,
 
     // Never replace missing permissions with role defaults.
     permissions,

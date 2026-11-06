@@ -31,7 +31,9 @@ function CustomerDetails() {
   const { id } = useParams();
   const { user, authenticatedRequest, authenticatedBlobRequest } = useAuth();
   const isCustomerApiMode = crmCustomersMode === "api";
-  const canManageCustomers = isCustomerApiMode ? ["ADMIN", "SALES"].includes(user?.backendRole) : ["ADMIN", "CRM_MANAGER"].includes(user?.role);
+  const canManageCustomers = isCustomerApiMode
+    ? ["ADMIN", "SALES"].includes(String(user?.backendRole || user?.role || "").toUpperCase())
+    : ["ADMIN", "SALES"].includes(String(user?.role || "").toUpperCase());
   const [customer, setCustomer] = useState(null);
   const [overview, setOverview] = useState(null);
   const [orders, setOrders] = useState([]);

@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { DEMO_USERS } from "../auth/demoUsers";
+import { normalizeRoleName } from "../auth/roles";
 import { getStaffUserById } from "../services/staffUserService";
 import {
   API_ACCESS_TOKEN_KEY,
@@ -276,7 +277,10 @@ try {
   const hasRole = useCallback((allowedRoles) => {
     if (!user?.role) return false;
     if (!allowedRoles || allowedRoles.length === 0) return true;
-    return allowedRoles.map((role) => String(role).toUpperCase()).includes(user.role);
+    const currentRole = normalizeRoleName(user.role);
+    return allowedRoles
+      .map((role) => normalizeRoleName(role))
+      .includes(currentRole);
   }, [user]);
 
   const authenticatedRequest = useCallback(async (path, options = {}) => {

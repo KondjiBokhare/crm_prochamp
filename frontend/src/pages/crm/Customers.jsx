@@ -11,7 +11,9 @@ const emptyForm = { name: "", email: "", phone: "", city: "", status: "Active", 
 function Customers() {
   const { user, authenticatedRequest } = useAuth();
   const isCustomerApiMode = crmCustomersMode === "api";
-  const canManageCustomers = isCustomerApiMode ? ["ADMIN", "SALES"].includes(user?.backendRole) : ["ADMIN", "CRM_MANAGER"].includes(user?.role);
+  const canManageCustomers = isCustomerApiMode
+    ? ["ADMIN", "SALES"].includes(String(user?.backendRole || user?.role || "").toUpperCase())
+    : ["ADMIN", "SALES"].includes(String(user?.role || "").toUpperCase());
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("All");

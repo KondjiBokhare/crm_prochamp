@@ -88,7 +88,7 @@ function TicketDetails({ ticket: initialTicket, onClose, actor, canAssign, onCha
 function SupportManagement() {
   const { user, authenticatedRequest } = useAuth();
   const actor = user?.name || user?.email || "CRM Staff";
-  const canAssign = ["ADMIN", "CRM_MANAGER"].includes(user?.role);
+  const canAssign = ["ADMIN", "SALES"].includes(String(user?.role || "").toUpperCase());
   const [items, setItems] = useState([]); const [search, setSearch] = useState(""); const [status, setStatus] = useState("All"); const [priority, setPriority] = useState("All"); const [category, setCategory] = useState("All"); const [assignedTo, setAssignedTo] = useState("All");
   const [selected, setSelected] = useState(null); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [reloadKey, setReloadKey] = useState(0);
   const [showCreate, setShowCreate] = useState(false); const [draft, setDraft] = useState(emptyTicketDraft); const [creating, setCreating] = useState(false);
