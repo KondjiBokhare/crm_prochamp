@@ -26,7 +26,7 @@ function Segments() {
   const [filter, setFilter] = useState("All");
   const [reloadKey, setReloadKey] = useState(0);
   const isApiMode = crmSegmentsMode === "api";
-  const canWrite = !isApiMode || hasRole(["ADMIN", "MARKETING_MANAGER"]);
+  const canWrite = !isApiMode || hasRole(["ADMIN", "MARKETING"]);
 
   useEffect(() => {
     let active = true;

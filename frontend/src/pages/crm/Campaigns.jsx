@@ -26,7 +26,7 @@ function Campaigns() {
   const [saving, setSaving] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const isApiMode = crmCampaignsMode === "api";
-  const canManage = !isApiMode || hasRole(["ADMIN", "MARKETING_MANAGER"]);
+  const canManage = !isApiMode || hasRole(["ADMIN", "MARKETING"]);
 
   useEffect(() => {
     let active = true;

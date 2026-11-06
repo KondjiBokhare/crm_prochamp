@@ -26,7 +26,7 @@ function Interactions() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const isApiMode = crmInteractionsMode === "api";
-  const canWrite = !isApiMode || hasRole(["ADMIN", "CRM_MANAGER", "SUPPORT_AGENT"]);
+  const canWrite = !isApiMode || hasRole(["ADMIN", "SALES", "SUPPORT"]);
 
   useEffect(() => {
     let active = true;

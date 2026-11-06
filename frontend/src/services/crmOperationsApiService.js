@@ -176,18 +176,23 @@ export async function markApiAllNotificationsRead(
 // ---------------------------- Staff accounts -----------------------------
 const FRONTEND_TO_BACKEND_ROLE = {
   ADMIN: "ADMIN",
+  SALES: "SALES",
+  SUPPORT: "SUPPORT",
+  MARKETING: "MARKETING",
+  ANALYST: "ANALYST",
+  MANAGEMENT: "MANAGEMENT",
+  OPERATIONS: "OPERATIONS",
   CRM_MANAGER: "SALES",
   SUPPORT_AGENT: "SUPPORT",
   MARKETING_MANAGER: "MARKETING",
-  ANALYST: "MANAGEMENT",
-  OPERATIONS: "OPERATIONS",
+  ANALYST_LEGACY: "ANALYST",
 };
 
 function mapStaffUser(record = {}) {
   const backendRole = String(record.role || "").toUpperCase();
 
   const role =
-    mapBackendRole(record.role) || backendRole;
+    mapBackendRole(record.role) || mapBackendRole(backendRole) || backendRole;
 
   const name = String(
     record.name ||

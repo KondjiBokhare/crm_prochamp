@@ -91,8 +91,8 @@ function Orders() {
   const [notice, setNotice] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
-  const canManage = ["ADMIN", "CRM_MANAGER"].includes(user?.role);
-  const canSupport = ["ADMIN", "CRM_MANAGER", "SUPPORT_AGENT"].includes(user?.role);
+  const canManage = ["ADMIN", "SALES"].includes(String(user?.role || "").toUpperCase());
+  const canSupport = ["ADMIN", "SALES", "SUPPORT"].includes(String(user?.role || "").toUpperCase());
   const isApiOrdersMode = crmOrdersMode === "api";
   const availableStatusFilters = isApiOrdersMode
     ? ["All", "Pending", "Confirmed", "Processing", "Shipped", "Delivered", "Cancelled", "Refunded"]
