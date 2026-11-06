@@ -16,6 +16,7 @@ import {
   updateCommunicationTemplate,
 } from "../../services/crmService";
 import { subscribeToNotificationChanges } from "../../services/notificationCenterService";
+import { loadOptionalNotifications } from "../../services/optionalNotifications";
 import { EmptyState, MetricCard, Modal, PageHeader, SectionCard, StatusBadge } from "../../components/crm/CrmUI";
 
 const CHANNELS = ["In-app", "Email", "SMS"];
@@ -41,6 +42,7 @@ function Communications() {
   const [segments, setSegments] = useState([]);
   const [history, setHistory] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [notificationError, setNotificationError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -59,29 +61,33 @@ function Communications() {
     setLoading(true);
     setError("");
     try {
-      const [templateRows, segmentRows, historyRows, notificationRows] = await Promise.all([
+      const [templateRows, segmentRows, historyRows] = await Promise.all([
         getCommunicationTemplates({ search: templateSearch, channel: templateChannel }, authenticatedRequest),
         getSegments(authenticatedRequest),
         getCommunicationHistory({ search: historySearch, channel: historyChannel, status: historyStatus }, authenticatedRequest),
-        getNotificationsForUser(user, authenticatedRequest),
       ]);
       setTemplates(Array.isArray(templateRows) ? templateRows : []);
       setSegments(Array.isArray(segmentRows) ? segmentRows : []);
       setHistory(Array.isArray(historyRows) ? historyRows : []);
-      setNotifications(Array.isArray(notificationRows) ? notificationRows : []);
     } catch (loadError) {
       setError(loadError.message || "Could not load the communication center.");
     } finally {
       setLoading(false);
     }
+    const notificationResult = await loadOptionalNotifications(
+      () => getNotificationsForUser(user, authenticatedRequest)
+    );
+    setNotifications(notificationResult.rows);
+    setNotificationError(notificationResult.error);
   }, [templateSearch, templateChannel, historySearch, historyChannel, historyStatus, user?.email, user?.role, user?.id, authenticatedRequest]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => subscribeToNotificationChanges(async () => {
-    try {
-      const rows = await getNotificationsForUser(user, authenticatedRequest);
-      setNotifications(Array.isArray(rows) ? rows : []);
-    } catch { /* the next page reload can retry */ }
+    const result = await loadOptionalNotifications(
+      () => getNotificationsForUser(user, authenticatedRequest)
+    );
+    setNotifications(result.rows);
+    setNotificationError(result.error);
   }), [user?.email, user?.role, user?.id, authenticatedRequest]);
 
   useEffect(() => {
@@ -153,17 +159,25 @@ function Communications() {
   }
 
   async function markOneRead(id) {
-    try {
+    const result = await loadOptionalNotifications(async () => {
       await markNotificationReadForUser(id, user, authenticatedRequest);
-      setNotifications(await getNotificationsForUser(user, authenticatedRequest));
-    } catch (markError) { setError(markError.message || "Could not mark notification as read."); }
+      return getNotificationsForUser(user, authenticatedRequest);
+    });
+    if (!result.error) setNotifications(result.rows);
+    setNotificationError(result.error || "");
   }
   async function markAllRead() {
-    try {
+    const result = await loadOptionalNotifications(async () => {
       await markAllNotificationsReadForUser(user, authenticatedRequest);
-      setNotifications(await getNotificationsForUser(user, authenticatedRequest));
+      return getNotificationsForUser(user, authenticatedRequest);
+    });
+    if (result.error) {
+      setNotificationError(result.error);
+    } else {
+      setNotifications(result.rows);
+      setNotificationError("");
       setNotice("All notifications marked as read.");
-    } catch (markError) { setError(markError.message || "Could not mark notifications as read."); }
+    }
   }
   async function openNotification(item) {
     await markOneRead(item.id);
@@ -174,6 +188,7 @@ function Communications() {
     <PageHeader title="Communications" description="Manage reusable message templates, record communication requests, review history and monitor CRM notifications." action={<button className="crm-button crm-button-primary" type="button" onClick={openNewTemplate}><Plus size={15}/> New template</button>}/>
     {crmCommunicationsMode === "api" ? <div className="crm-demo-notice">API mode · Templates, history and staff notifications are stored in Django. Email/SMS delivery and scheduled execution are not configured; dispatch records do not mean a message was sent.</div> : <div className="crm-demo-notice">Demo mode · In-app messages create browser-local notifications. Email/SMS and scheduled sends are recorded only; no provider or background worker is running.</div>}
     {error && !templateModal && <div className="crm-error-banner" role="alert">{error}</div>}
+    {tab === "notifications" && notificationError && <div className="crm-error-banner" role="alert">{notificationError}</div>}
     {notice && <div className="crm-success-banner" role="status">{notice}</div>}
 
     <div className="crm-metrics-grid crm-metrics-three">

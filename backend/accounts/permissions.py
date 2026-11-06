@@ -27,8 +27,8 @@ ACCOUNT_ROLE_ACCESS = {
         "allowed": [
             "GET /api/auth/me/",
             "GET /api/auth/role-access/",
-            "GET /api/auth/staff/ (own organization)",
-            "GET, PUT, PATCH /api/auth/staff/{id}/ (own organization; not own role)",
+            "GET /api/auth/staff/ (own organization; requires userManagement)",
+            "GET, PUT, PATCH /api/auth/staff/{id}/ (own organization; requires userManagement; not own role)",
         ],
     },
     "CUSTOMER": {"allowed": ["GET /api/auth/me/", "GET /api/auth/role-access/"]},
@@ -328,6 +328,23 @@ class IsPublicProductReadOnly(BasePermission):
             )
         )
 
+
+class IsActiveOrganizationEmployee(BasePermission):
+    """Allow active non-customer accounts attached to an organization."""
+
+    message = "An active organization staff account is required."
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and user.is_active
+            and user.role != CUSTOMER_ROLE
+            and user.organization_id is not None
+        )
+
+
 class HasCRMPagePermission(BasePermission):
     """
     Enforce individual CRM page permissions on API endpoints.
@@ -335,8 +352,8 @@ class HasCRMPagePermission(BasePermission):
     Each protected view must define:
         crm_page_permission = "products"
 
-    Super Admin bypasses individual page permissions.
-    All other users must have the exact key in crm_permissions.
+    Every CRM employee, including platform administrators using the CRM API,
+    must have the exact key in crm_permissions.
     """
 
     message = "You do not have permission to access this CRM module."
@@ -344,12 +361,14 @@ class HasCRMPagePermission(BasePermission):
     def has_permission(self, request, view):
         user = request.user
 
-        if not user or not user.is_authenticated:
+        if (
+            not user
+            or not user.is_authenticated
+            or not user.is_active
+            or user.role == CUSTOMER_ROLE
+            or user.organization_id is None
+        ):
             return False
-
-        # Platform Super Admin has global access.
-        if user.is_superuser:
-            return True
 
         page_key = getattr(
             view,
@@ -371,3 +390,43 @@ class HasCRMPagePermission(BasePermission):
             return False
 
         return page_key in permissions
+
+
+class IsOrganizationAdminWithCRMPagePermission(BasePermission):
+    """Require both the Admin designation and assigned page access."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(
+            user
+            and user.is_authenticated
+            and not user.is_superuser
+            and user.role == ADMIN_ROLE
+            and user.organization_id is not None
+            and HasCRMPagePermission().has_permission(request, view)
+        )
+
+
+class IsSuperAdminOrOrganizationAdminWithCRMPagePermission(BasePermission):
+    """Allow platform admins, or organization Admins with assigned access."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated or not user.is_active:
+            return False
+        if user.is_superuser:
+            return True
+        return IsOrganizationAdminWithCRMPagePermission().has_permission(
+            request,
+            view,
+        )
+
+
+class IsAuditLogReader(BasePermission):
+    """Keep global audit access for active platform superusers only."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if user and user.is_authenticated and user.is_active and user.is_superuser:
+            return True
+        return HasCRMPagePermission().has_permission(request, view)

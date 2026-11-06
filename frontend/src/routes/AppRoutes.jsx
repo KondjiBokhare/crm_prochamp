@@ -15,7 +15,10 @@ import CRMLayout from "../layouts/CRMLayout";
 
 import ProtectedRoute from "../components/auth/ProtectedRoute";
 import RoleGuard from "../components/auth/RoleGuard";
-import { CRM_ROLES } from "../auth/roles";
+import { PAGE_PERMISSION_REGISTRY } from "../auth/roles";
+
+const crmRoute = (pageKey) =>
+  PAGE_PERMISSION_REGISTRY[pageKey].route.replace(/^\/crm\/?/, "");
 
 // CRM authentication pages
  
@@ -241,7 +244,7 @@ function AppRouteContent() {
           <Route
             path="/crm"
             element={
-              <ProtectedRoute allowedRoles={CRM_ROLES} loginPath="/login">
+              <ProtectedRoute loginPath="/login">
                 <CRMLayout />
               </ProtectedRoute>
             }
@@ -256,7 +259,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="customers"
+              path={crmRoute("customers")}
               element={
                 <RoleGuard pageKey="customers">
                   <Customers />
@@ -265,7 +268,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="leads"
+              path={crmRoute("leads")}
               element={
                 <RoleGuard pageKey="leads">
                   <Leads />
@@ -274,7 +277,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="customers/:id"
+              path={crmRoute("customerDetails")}
               element={
                 <RoleGuard pageKey="customerDetails">
                   <CustomerDetails />
@@ -283,7 +286,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="orders"
+              path={crmRoute("orders")}
               element={
                 <RoleGuard pageKey="orders">
                   <OrderManagement />
@@ -292,7 +295,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="shipments"
+              path={crmRoute("shipments")}
               element={
                 <RoleGuard pageKey="shipments">
                   <Shipments />
@@ -301,7 +304,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="returns"
+              path={crmRoute("returns")}
               element={
                 <RoleGuard pageKey="returns">
                   <Returns />
@@ -310,7 +313,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="order-activity"
+              path={crmRoute("orderActivity")}
               element={
                 <RoleGuard pageKey="orderActivity">
                   <OrderActivity />
@@ -319,7 +322,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="support"
+              path={crmRoute("support")}
               element={
                 <RoleGuard pageKey="support">
                   <SupportManagement />
@@ -328,7 +331,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="interactions"
+              path={crmRoute("interactions")}
               element={
                 <RoleGuard pageKey="interactions">
                   <Interactions />
@@ -337,7 +340,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="segments"
+              path={crmRoute("segments")}
               element={
                 <RoleGuard pageKey="segments">
                   <Segments />
@@ -346,7 +349,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="campaigns"
+              path={crmRoute("campaigns")}
               element={
                 <RoleGuard pageKey="campaigns">
                   <Campaigns />
@@ -355,7 +358,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="communications"
+              path={crmRoute("communications")}
               element={
                 <RoleGuard pageKey="communications">
                   <Communications />
@@ -364,7 +367,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="banners"
+              path={crmRoute("banners")}
               element={
                 <RoleGuard pageKey="banners">
                   <BannerManagement />
@@ -373,7 +376,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="products"
+              path={crmRoute("products")}
               element={
                 <RoleGuard pageKey="products">
                   <ProductManagement />
@@ -382,7 +385,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="product-reviews"
+              path={crmRoute("productReviews")}
               element={
                 <RoleGuard pageKey="productReviews">
                   <ProductReviewsModeration />
@@ -391,7 +394,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="categories"
+              path={crmRoute("categories")}
               element={
                 <RoleGuard pageKey="categories">
                   <Categories />
@@ -400,7 +403,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="storefront-settings"
+              path={crmRoute("storefrontSettings")}
               element={
                 <RoleGuard pageKey="storefrontSettings">
                   <StorefrontSettings />
@@ -409,7 +412,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="homepage-promotions"
+              path={crmRoute("homepagePromotions")}
               element={
                 <RoleGuard pageKey="homepagePromotions">
                   <HomepagePromotions />
@@ -418,16 +421,16 @@ function AppRouteContent() {
             />
 
             <Route
-              path="users"
+              path={crmRoute("userManagement")}
               element={
-                <RoleGuard allowedRoles={["ADMIN"]}>
+                <RoleGuard pageKey="userManagement">
                   <UserManagement />
                 </RoleGuard>
               }
             />
 
             <Route
-              path="analytics"
+              path={crmRoute("analytics")}
               element={
                 <RoleGuard pageKey="analytics">
                   <Analytics />
@@ -436,7 +439,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="audit-logs"
+              path={crmRoute("auditLogs")}
               element={
                 <RoleGuard pageKey="auditLogs">
                   <AuditLogs />
@@ -445,7 +448,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="inventory"
+              path={crmRoute("inventory")}
               element={
                 <RoleGuard pageKey="inventory">
                   <InventoryManagement />
@@ -454,7 +457,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="coupons"
+              path={crmRoute("coupons")}
               element={
                 <RoleGuard pageKey="coupons">
                   <Coupons />
@@ -463,7 +466,7 @@ function AppRouteContent() {
             />
 
             <Route
-              path="abandoned-carts"
+              path={crmRoute("abandonedCarts")}
               element={
                 <RoleGuard pageKey="abandonedCarts">
                   <AbandonedCarts />

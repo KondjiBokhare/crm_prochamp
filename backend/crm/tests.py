@@ -7,7 +7,7 @@ from rest_framework.test import APITestCase
 from accounts.token_service import create_access_token
 
 from accounts.models import User, Organization
-from crm.models import AuditLog, Category, Customer, Product, StockMovement
+from crm.models import AuditLog, Category, Customer, Lead, Notification, Product, StockMovement
 
 
 class AuditLogAPITests(APITestCase):
@@ -497,3 +497,186 @@ class ProductAccessAPITests(APITestCase):
             product.organization_id,
             self.organization.pk,
         )
+
+
+class CRMIndividualPermissionAndNotificationTests(APITestCase):
+    def setUp(self):
+        self.org_a = Organization.objects.create(name="Permission Org A")
+        self.org_b = Organization.objects.create(name="Permission Org B")
+        self.sales_leads = self.make_employee(
+            "sales-leads@test.com", "SALES", self.org_a, ["leads"]
+        )
+        self.sales_no_orders = self.make_employee(
+            "sales-no-orders@test.com", "SALES", self.org_a, ["leads"]
+        )
+        self.sales_orders = self.make_employee(
+            "sales-orders@test.com", "SALES", self.org_a, ["orders"]
+        )
+        self.sales_no_permissions = self.make_employee(
+            "sales-none@test.com", "SALES", self.org_a, []
+        )
+        self.support_no_permissions = self.make_employee(
+            "support-none@test.com", "SUPPORT", self.org_a, []
+        )
+        self.marketing_no_permissions = self.make_employee(
+            "marketing-none@test.com", "MARKETING", self.org_a, []
+        )
+
+        Lead.objects.create(
+            organization=self.org_a,
+            name="Organization A lead",
+            email="lead-a@test.com",
+        )
+        Lead.objects.create(
+            organization=self.org_b,
+            name="Organization B lead",
+            email="lead-b@test.com",
+        )
+
+    def make_employee(self, email, role, organization, permissions):
+        return User.objects.create_user(
+            email=email,
+            password="test-password-123",
+            role=role,
+            organization=organization,
+            crm_permissions=permissions,
+            is_active=True,
+        )
+
+    def authenticate(self, user):
+        token = create_access_token(user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    @staticmethod
+    def response_items(response):
+        if isinstance(response.data, dict):
+            return response.data.get("results", [])
+        return response.data
+
+    def test_explicit_page_permissions_are_authoritative_for_same_role(self):
+        self.authenticate(self.sales_leads)
+        response = self.client.get("/api/crm/leads/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(
+            [row["name"] for row in self.response_items(response)],
+            ["Organization A lead"],
+        )
+
+        self.authenticate(self.sales_no_orders)
+        response = self.client.get("/api/crm/orders/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.authenticate(self.sales_orders)
+        response = self.client.get("/api/crm/orders/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+
+    def test_notifications_are_available_without_page_permissions(self):
+        for employee in (
+            self.sales_no_permissions,
+            self.support_no_permissions,
+            self.marketing_no_permissions,
+            self.make_employee(
+                "future-role@test.com", "FUTURE_ROLE", self.org_a, []
+            ),
+        ):
+            with self.subTest(role=employee.role):
+                self.authenticate(employee)
+                response = self.client.get("/api/crm/notifications/")
+                self.assertEqual(
+                    response.status_code,
+                    status.HTTP_200_OK,
+                    response.data,
+                )
+
+    def test_notification_visibility_read_state_and_tenant_isolation(self):
+        shared = Notification.objects.create(
+            organization=self.org_a,
+            title="Staff update",
+            message="A notification for every employee in this organization.",
+            audience="crm",
+        )
+        private = Notification.objects.create(
+            organization=self.org_a,
+            title="Private update",
+            message="Only the intended employee can see this.",
+            audience="crm",
+            recipient_email=self.sales_no_permissions.email,
+        )
+        customer_only = Notification.objects.create(
+            organization=self.org_a,
+            title="Customer update",
+            message="This must stay in the customer notification center.",
+            audience="customer",
+            recipient_emails=[self.sales_no_permissions.email],
+        )
+        other_org = Notification.objects.create(
+            organization=self.org_b,
+            title="Other organization",
+            message="This belongs to a different tenant.",
+            audience="crm",
+        )
+
+        self.authenticate(self.sales_no_permissions)
+        response = self.client.get("/api/crm/notifications/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = self.response_items(response)
+        self.assertEqual(
+            {row["id"] for row in rows},
+            {shared.pk, private.pk},
+        )
+        self.assertTrue(all(row["read"] is False for row in rows))
+
+        read_response = self.client.post(
+            f"/api/crm/notifications/{shared.pk}/read/", {}, format="json"
+        )
+        self.assertEqual(read_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(read_response.data["read"])
+
+        self.authenticate(self.support_no_permissions)
+        response = self.client.get("/api/crm/notifications/")
+        shared_row = next(row for row in self.response_items(response) if row["id"] == shared.pk)
+        self.assertFalse(shared_row["read"])
+
+        private_read_response = self.client.post(
+            f"/api/crm/notifications/{private.pk}/read/", {}, format="json"
+        )
+        self.assertEqual(
+            private_read_response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        other_org_read_response = self.client.post(
+            f"/api/crm/notifications/{other_org.pk}/read/", {}, format="json"
+        )
+        self.assertEqual(
+            other_org_read_response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_employee_cannot_access_another_organizations_crm_records(self):
+        self.authenticate(self.sales_leads)
+        response = self.client.get("/api/crm/leads/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [row["name"] for row in self.response_items(response)],
+            ["Organization A lead"],
+        )
+
+    def test_customer_and_unassigned_account_cannot_use_staff_notifications(self):
+        customer = User.objects.create_user(
+            email="customer-notifications@test.com",
+            password="test-password-123",
+            role="CUSTOMER",
+            organization=self.org_a,
+            crm_permissions=["communications"],
+        )
+        unassigned = self.make_employee(
+            "unassigned@test.com", "SALES", None, []
+        )
+        for user in (customer, unassigned):
+            with self.subTest(user=user.email):
+                self.authenticate(user)
+                response = self.client.get("/api/crm/notifications/")
+                self.assertEqual(
+                    response.status_code,
+                    status.HTTP_403_FORBIDDEN,
+                )

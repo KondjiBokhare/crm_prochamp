@@ -41,7 +41,7 @@ const PERMISSION_OPTIONS = Object.entries(
 const blankForm = () => ({
   name: "",
   email: "",
-  role: "CRM_MANAGER",
+  role: "SALES",
   password: "",
   organizationId: "",
   permissions: [],
@@ -684,7 +684,7 @@ function UserManagement() {
 
             <SectionCard
               title="Page access permissions"
-              subtitle={`${form.permissions.length} page(s) selected. Unselected pages will be denied.`}
+              subtitle={`${form.permissions.length} page(s) selected. Roles do not grant access; unselected pages will be denied.`}
             >
               <div
                 style={{

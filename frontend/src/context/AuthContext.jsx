@@ -166,7 +166,7 @@ export function AuthProvider({ children }) {
 
     clearApiTokens();
     setAccessToken(null);
-    const nextUser = { ...userData, role };
+    const nextUser = { ...userData, role, isAuthenticated: true };
     setUser(nextUser);
     setAuthError("");
     try {

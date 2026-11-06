@@ -1,82 +1,112 @@
-import { PAGE_ROLES, ROLE_LABELS } from "../auth/roles";
 
-export const PAGE_PERMISSION_LABELS = {
-  dashboard: "Dashboard",
-  customers: "Customers",
-  leads: "Leads",
-  orders: "Orders",
-  support: "Support tickets",
-  customerDetails: "Customer details",
-  interactions: "Interactions",
-  segments: "Customer segments",
-  campaigns: "Campaigns",
-  communications: "Communications",
-  analytics: "Analytics and reports",
-  banners: "Banner management",
-  products: "Product management",
-  categories: "Category management",
-  storefrontSettings: "Global storefront settings",
-  homepagePromotions: "Homepage promotions",
-  userManagement: "User and permissions management",
-  inventory: "Inventory and stock movements",
-  coupons: "Coupons and discounts",
-  abandonedCarts: "Abandoned cart reporting",
-  shipments: "Shipments",
-  returns: "Returns",
-  orderActivity: "Order activity",
-  productReviews: "Product reviews",
-  auditLogs: "Audit logs",
-};
+import { PAGE_PERMISSION_REGISTRY, ROLE_LABELS } from "../auth/roles.js";
 
-const ADMIN_ONLY_PAGES = new Set([
-  "userManagement",
-  "storefrontSettings",
-]);
+export const PAGE_PERMISSION_LABELS = Object.fromEntries(
+  Object.entries(PAGE_PERMISSION_REGISTRY).map(([key, page]) => [
+    key,
+    page.label,
+  ])
+);
 
-const normaliseRole = (role) =>
-  String(role || "").trim().toUpperCase();
-
-export function defaultPermissionsForRole(role) {
-  const key = normaliseRole(role);
-
-  return Object.entries(PAGE_ROLES)
-    .filter(([, roles]) => roles.includes(key))
-    .map(([pageKey]) => pageKey);
+export function defaultPermissionsForRole() {
+  return [];
 }
 
+
 export function canUserAccessPage(user, pageKey) {
-  if (!user || !PAGE_ROLES[pageKey]) {
-    return false;
-  }
-
-  // Super Admin always has global CRM access.
   if (
-    user.isSuperAdmin === true ||
-    user.is_super_admin === true
+    !user ||
+    user.isAuthenticated !== true ||
+    user.active !== true ||
+    user.role === "CUSTOMER" ||
+    !PAGE_PERMISSION_REGISTRY[pageKey]
   ) {
-    return true;
-  }
-
-  const role = normaliseRole(
-    user.backendRole || user.role
-  );
-
-  // Sensitive administrative pages remain restricted.
-  if (ADMIN_ONLY_PAGES.has(pageKey) && role !== "ADMIN") {
     return false;
   }
 
-  // No role-based fallback.
-  // Only permissions explicitly assigned to this employee count.
   const permissions = Array.isArray(user.permissions)
     ? user.permissions
     : [];
 
+  if (pageKey === "userManagement") {
+    if (user.isSuperAdmin === true) return true;
+
+    return (
+      user.role === "ADMIN" &&
+      Boolean(user.organizationId) &&
+      permissions.includes("userManagement")
+    );
+  }
+
+  if (!user.organizationId) return false;
+
   return permissions.includes(pageKey);
 }
 
+
+/**
+ * Match static and parameterized routes from the central registry.
+ */
+function routeMatches(pattern, pathname) {
+  const patternParts = pattern.split("/").filter(Boolean);
+  const pathParts = pathname.split("/").filter(Boolean);
+
+  if (patternParts.length !== pathParts.length) {
+    return false;
+  }
+
+  return patternParts.every((part, index) =>
+    part.startsWith(":") || part === pathParts[index]
+  );
+}
+
+/**
+ * Resolve the requested CRM path only when the user can access it.
+ * Otherwise, use the first assigned CRM module.
+ */
+export function getPermittedCrmPath(user, requestedPath = "") {
+  if (
+    !user ||
+    user.isAuthenticated !== true ||
+    user.active !== true ||
+    user.role === "CUSTOMER"
+  ) {
+    return "/unauthorized";
+  }
+
+  const requested = String(requestedPath || "");
+  const requestedPathOnly = requested.split(/[?#]/)[0].replace(/\/+$/, "") || "/crm";
+
+  if (requestedPathOnly.startsWith("/crm")) {
+    const matchingPage = Object.entries(PAGE_PERMISSION_REGISTRY).find(
+      ([, page]) => routeMatches(page.route, requestedPathOnly)
+    );
+
+    if (
+      matchingPage &&
+      canUserAccessPage(user, matchingPage[0])
+    ) {
+      return requested;
+    }
+  }
+
+  // Prefer Dashboard when it is explicitly assigned.
+  if (canUserAccessPage(user, "dashboard")) {
+    return PAGE_PERMISSION_REGISTRY.dashboard.route;
+  }
+
+  // Otherwise find the first assigned page available in the sidebar.
+  const firstAllowedPage = Object.entries(PAGE_PERMISSION_REGISTRY).find(
+    ([pageKey, page]) =>
+      Boolean(page.sidebar) && canUserAccessPage(user, pageKey)
+  );
+
+  return firstAllowedPage?.[1]?.route || "/unauthorized";
+}
+
+export const canAccessPage = canUserAccessPage;
+
 // Legacy functions remain exported so old imports do not break.
-// They never read or write demo users or passwords.
 export function listStaffUsers() {
   return [];
 }
@@ -107,12 +137,8 @@ export function clearManagedStaffDemoData() {
   }
 
   try {
-    window.localStorage.removeItem(
-      "techgear_managed_staff_users_v1"
-    );
-    window.localStorage.removeItem(
-      "techgear_demo_staff_overrides_v1"
-    );
+    window.localStorage.removeItem("techgear_managed_staff_users_v1");
+    window.localStorage.removeItem("techgear_demo_staff_overrides_v1");
 
     window.dispatchEvent(
       new Event("techgear:staff-users-updated")
@@ -122,7 +148,6 @@ export function clearManagedStaffDemoData() {
   }
 }
 
-export const staffUsersChangedEvent =
-  "techgear:staff-users-updated";
+export const staffUsersChangedEvent = "techgear:staff-users-updated";
 
 export { ROLE_LABELS };

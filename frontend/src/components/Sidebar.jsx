@@ -1,36 +1,18 @@
 import { LogOut } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { ROLE_LABELS } from "../auth/roles";
+import { PAGE_PERMISSION_REGISTRY, ROLE_LABELS } from "../auth/roles";
 import { useSiteSettings } from "../services/siteSettingsService";
 import { canUserAccessPage } from "../services/staffUserService";
 
-const navigationItems = [
-  { label: "Dashboard", to: "/crm", end: true, key: "dashboard" },
-  { label: "Customers", to: "/crm/customers", key: "customers" },
-  { label: "Leads", to: "/crm/leads", key: "leads" },
-  { label: "Orders", to: "/crm/orders", key: "orders" },
-  { label: "Shipment tracking", to: "/crm/shipments", key: "shipments" },
-  { label: "Returns & RMA", to: "/crm/returns", key: "returns" },
-  { label: "Order activity", to: "/crm/order-activity", key: "orderActivity" },
-  { label: "Support Tickets", to: "/crm/support", key: "support" },
-  { label: "Interactions", to: "/crm/interactions", key: "interactions" },
-  { label: "Segments", to: "/crm/segments", key: "segments" },
-  { label: "Campaigns", to: "/crm/campaigns", key: "campaigns" },
-  { label: "Communications", to: "/crm/communications", key: "communications" },
-  { label: "Banners", to: "/crm/banners", key: "banners" },
-  { label: "Products", to: "/crm/products", key: "products" },
-  { label: "Inventory", to: "/crm/inventory", key: "inventory" },
-  { label: "Coupons & discounts", to: "/crm/coupons", key: "coupons" },
-  { label: "Abandoned carts", to: "/crm/abandoned-carts", key: "abandonedCarts" },
-  { label: "Product reviews", to: "/crm/product-reviews", key: "productReviews" },
-  { label: "Categories", to: "/crm/categories", key: "categories" },
-  { label: "Storefront settings", to: "/crm/storefront-settings", key: "storefrontSettings" },
-  { label: "Homepage promotions", to: "/crm/homepage-promotions", key: "homepagePromotions" },
-  { label: "User & permissions", to: "/crm/users", key: "userManagement" },
-  { label: "Analytics", to: "/crm/analytics", key: "analytics" },
-  { label: "Audit Logs", to: "/crm/audit-logs", key: "auditLogs" },
-];
+const navigationItems = Object.entries(PAGE_PERMISSION_REGISTRY)
+  .filter(([, page]) => page.sidebar)
+  .map(([key, page]) => ({
+    key,
+    label: page.sidebar.label,
+    to: page.route,
+    end: page.sidebar.end,
+  }));
 
 function Sidebar() {
   const navigate = useNavigate();

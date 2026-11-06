@@ -210,6 +210,7 @@ function mapStaffUser(record = {}) {
 
     role,
     backendRole,
+    organizationId: record.organization_id ?? null,
 
     roleLabel:
       ROLE_LABELS[role] ||

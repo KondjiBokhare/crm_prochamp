@@ -152,18 +152,18 @@ export function normaliseBackendUser(rawUser) {
     );
   }
 
-  if (rawUser.is_active === false) {
+  if (rawUser.is_active !== true) {
     throw new Error(
       "This account is inactive. Contact your administrator."
     );
   }
 
   const backendRole = String(rawUser.role || "").trim().toUpperCase();
-  const canonicalRole = mapBackendRole(backendRole);
+  const canonicalRole = mapBackendRole(backendRole) || backendRole;
 
-  if (!canonicalRole) {
+  if (!backendRole) {
     throw new Error(
-      `The backend role '${rawUser.role || "unknown"}' has not been mapped to a CRM UI role.`
+      "The current-user API response does not include an employee role."
     );
   }
 
@@ -195,6 +195,7 @@ export function normaliseBackendUser(rawUser) {
       : email,
 
     role: canonicalRole,
+    isAuthenticated: true,
 
     // Keep the real Django role separately for display and auditing.
     backendRole,
@@ -202,11 +203,13 @@ export function normaliseBackendUser(rawUser) {
     // Never replace missing permissions with role defaults.
     permissions,
 
+    organizationId: rawUser.organization_id ?? null,
+
     isSuperAdmin:
       rawUser.is_superuser === true ||
       rawUser.is_super_admin === true,
 
-    active: rawUser.is_active !== false,
+    active: rawUser.is_active === true,
     isDemo: false,
     authProvider: "django",
     dateJoined: rawUser.date_joined || null,
