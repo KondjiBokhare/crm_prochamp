@@ -142,32 +142,70 @@ export function mapBackendRole(role) {
 
 export function normaliseBackendUser(rawUser) {
   if (!rawUser || rawUser.id === undefined || !rawUser.email) {
-    throw new Error("The current-user API returned an unexpected user response.");
+    throw new Error(
+      "The current-user API returned an unexpected user response."
+    );
   }
+
   if (rawUser.is_active === false) {
-    throw new Error("This account is inactive. Contact your administrator.");
+    throw new Error(
+      "This account is inactive. Contact your administrator."
+    );
   }
 
   const frontendRole = mapBackendRole(rawUser.role);
+
   if (!frontendRole) {
-    throw new Error(`The backend role '${rawUser.role || "unknown"}' has not been mapped to a CRM UI role.`);
+    throw new Error(
+      `The backend role '${rawUser.role || "unknown"}' has not been mapped to a CRM UI role.`
+    );
   }
 
   const email = String(rawUser.email);
-  const namePart = [rawUser.first_name, rawUser.last_name].filter(Boolean).join(" ").trim() || email.split("@")[0].replace(/[._-]+/g, " ").trim();
+
+  const namePart =
+    [rawUser.first_name, rawUser.last_name]
+      .filter(Boolean)
+      .join(" ")
+      .trim() ||
+    email.split("@")[0].replace(/[._-]+/g, " ").trim();
+
+  const permissions = Array.isArray(rawUser.permissions)
+    ? rawUser.permissions.filter(
+        (permission) => typeof permission === "string"
+      )
+    : Array.isArray(rawUser.crm_permissions)
+      ? rawUser.crm_permissions.filter(
+          (permission) => typeof permission === "string"
+        )
+      : [];
+
   return {
     id: String(rawUser.id),
     email,
-    name: namePart ? namePart.replace(/\b\w/g, (letter) => letter.toUpperCase()) : email,
+
+    name: namePart
+      ? namePart.replace(/\b\w/g, (letter) => letter.toUpperCase())
+      : email,
+
     role: frontendRole,
+
+    // Keep the real Django role separately for display and auditing.
     backendRole: String(rawUser.role || "").toUpperCase(),
+
+    // Never replace missing permissions with role defaults.
+    permissions,
+
+    isSuperAdmin:
+      rawUser.is_superuser === true ||
+      rawUser.is_super_admin === true,
+
     active: rawUser.is_active !== false,
     isDemo: false,
     authProvider: "django",
     dateJoined: rawUser.date_joined || null,
   };
 }
-
 export function safelyReadSessionStorage(key) {
   try {
     return window.sessionStorage.getItem(key);

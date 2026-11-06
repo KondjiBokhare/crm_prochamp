@@ -1,22 +1,24 @@
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Pencil,
   RefreshCw,
   Search,
   ShieldCheck,
   UserPlus,
-  UserX,
+  Users,
 } from "lucide-react";
 
 import { useAuth } from "../../context/AuthContext";
 
 import {
   listApiStaffUsers,
+  listApiOrganizations,
   createApiStaffUser,
   updateApiStaffUser,
 } from "../../services/crmOperationsApiService";
 
 import { CRM_ROLES, ROLE_LABELS } from "../../auth/roles";
+import { PAGE_PERMISSION_LABELS } from "../../services/staffUserService";
 
 import {
   EmptyState,
@@ -27,38 +29,49 @@ import {
   StatusBadge,
 } from "../../components/crm/CrmUI";
 
-const roleDescription = {
-  ADMIN: "Organization administration and staff management.",
-  CRM_MANAGER: "Customers, products, orders and CRM operations.",
-  MARKETING_MANAGER: "Promotions, banners, segments and campaigns.",
-  SUPPORT_AGENT: "Support tickets, replies and customer interactions.",
-  ANALYST: "Analytics, reports and business insights.",
-  OPERATIONS: "Inventory, shipments and operational workflows.",
-};
+const RESTRICTED_PERMISSION_KEYS = new Set([
+  "userManagement",
+  "storefrontSettings",
+]);
+
+const PERMISSION_OPTIONS = Object.entries(
+  PAGE_PERMISSION_LABELS
+).filter(([key]) => !RESTRICTED_PERMISSION_KEYS.has(key));
 
 const blankForm = () => ({
-  id: null,
   name: "",
   email: "",
   role: "CRM_MANAGER",
   password: "",
-  active: true,
+  organizationId: "",
+  permissions: [],
 });
 
 function UserManagement() {
   const { user: currentUser, authenticatedRequest } = useAuth();
 
+  const isSuperAdmin = currentUser?.isSuperAdmin === true;
+
+  const isOrganizationAdmin =
+    !isSuperAdmin && currentUser?.role === "ADMIN";
+
   const [users, setUsers] = useState([]);
+  const [organizations, setOrganizations] = useState([]);
+
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
 
   const [showEditor, setShowEditor] = useState(false);
   const [editing, setEditing] = useState(null);
+
   const [form, setForm] = useState(blankForm);
 
-  const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [organizationsLoading, setOrganizationsLoading] =
+    useState(false);
+
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -67,14 +80,16 @@ function UserManagement() {
     setError("");
 
     try {
-      const records = await listApiStaffUsers(authenticatedRequest);
+      const records = await listApiStaffUsers(
+        authenticatedRequest
+      );
+
       setUsers(Array.isArray(records) ? records : []);
-    } catch (loadError) {
-      // Never replace failed production API data with demo users.
+    } catch (err) {
       setUsers([]);
+
       setError(
-        loadError.message ||
-          "Could not load staff accounts from the Django database."
+        err.message || "Could not load staff accounts."
       );
     } finally {
       setLoading(false);
@@ -85,22 +100,65 @@ function UserManagement() {
     refresh();
   }, [refresh]);
 
+  // Only Super Admin can list organizations.
+  useEffect(() => {
+    if (!isSuperAdmin) {
+      setOrganizations([]);
+      return;
+    }
+
+    let active = true;
+
+    async function loadOrganizations() {
+      setOrganizationsLoading(true);
+
+      try {
+        const records = await listApiOrganizations(
+          authenticatedRequest
+        );
+
+        if (active) {
+          setOrganizations(
+            Array.isArray(records) ? records : []
+          );
+        }
+      } catch (err) {
+        if (active) {
+          setError(
+            err.message ||
+              "Could not load organizations."
+          );
+        }
+      } finally {
+        if (active) {
+          setOrganizationsLoading(false);
+        }
+      }
+    }
+
+    loadOrganizations();
+
+    return () => {
+      active = false;
+    };
+  }, [isSuperAdmin, authenticatedRequest]);
+
   const visibleUsers = useMemo(() => {
     const search = query.trim().toLowerCase();
 
     return users.filter((record) => {
       const matchesSearch =
         !search ||
-        [
-          record.name,
-          record.email,
-          record.id,
-        ].some((value) =>
-          String(value || "").toLowerCase().includes(search)
+        [record.name, record.email, record.id].some(
+          (value) =>
+            String(value || "")
+              .toLowerCase()
+              .includes(search)
         );
 
       const matchesRole =
-        roleFilter === "All" || record.role === roleFilter;
+        roleFilter === "All" ||
+        record.role === roleFilter;
 
       const matchesStatus =
         statusFilter === "All" ||
@@ -108,7 +166,11 @@ function UserManagement() {
           ? record.active
           : !record.active);
 
-      return matchesSearch && matchesRole && matchesStatus;
+      return (
+        matchesSearch &&
+        matchesRole &&
+        matchesStatus
+      );
     });
   }, [users, query, roleFilter, statusFilter]);
 
@@ -122,6 +184,8 @@ function UserManagement() {
   ).length;
 
   function openCreate() {
+    if (!isSuperAdmin) return;
+
     setEditing(null);
     setForm(blankForm());
     setError("");
@@ -129,16 +193,26 @@ function UserManagement() {
     setShowEditor(true);
   }
 
-  function openEdit(record) {
+  function openPermissionEditor(record) {
+    if (!isOrganizationAdmin) return;
+
+    if (
+      String(record.id) === String(currentUser?.id)
+    ) {
+      setError("You cannot change your own permissions.");
+      return;
+    }
+
     setEditing(record);
 
     setForm({
-      id: record.id,
-      name: record.name || "",
-      email: record.email || "",
-      role: record.role,
-      password: "",
-      active: record.active,
+      ...blankForm(),
+      permissions: Array.isArray(record.permissions)
+        ? record.permissions.filter(
+            (key) =>
+              !RESTRICTED_PERMISSION_KEYS.has(key)
+          )
+        : [],
     });
 
     setError("");
@@ -153,6 +227,18 @@ function UserManagement() {
     }));
   }
 
+  function togglePermission(key, checked) {
+    setForm((current) => ({
+      ...current,
+
+      permissions: checked
+        ? [...new Set([...current.permissions, key])]
+        : current.permissions.filter(
+            (item) => item !== key
+          ),
+    }));
+  }
+
   async function save(event) {
     event.preventDefault();
 
@@ -161,141 +247,106 @@ function UserManagement() {
     setNotice("");
 
     try {
-      const name = String(form.name || "").trim();
-      const email = String(form.email || "")
-        .trim()
-        .toLowerCase();
-      const password = String(form.password || "");
-
-      if (!name) {
-        throw new Error("Enter the staff member's full name.");
-      }
-
-      if (!/^\S+@\S+\.\S+$/.test(email)) {
-        throw new Error("Enter a valid work email address.");
-      }
-
-      if (!CRM_ROLES.includes(form.role)) {
-        throw new Error("Choose a valid CRM role.");
-      }
-
-      if (!editing && password.length < 8) {
-        throw new Error(
-          "Initial password must contain at least 8 characters."
-        );
-      }
-
-      if (editing && password && password.length < 8) {
-        throw new Error(
-          "A reset password must contain at least 8 characters."
-        );
-      }
-
-      const payload = {
-        name,
-        email,
-        role: form.role,
-        active: Boolean(form.active),
-      };
-
-      // Send a password only when creating an account or
-      // when the administrator explicitly resets it.
-      if (!editing || password) {
-        payload.password = password;
-      }
-
       if (editing) {
+        // Organization Admin updates permissions only.
+        if (!isOrganizationAdmin) {
+          throw new Error(
+            "You are not allowed to update this account."
+          );
+        }
+
         await updateApiStaffUser(
           editing.id,
-          payload,
+          {
+            permissions: form.permissions,
+          },
           authenticatedRequest
+        );
+
+        setNotice(
+          `Permissions updated for ${editing.name}.`
         );
       } else {
+        // Only Super Admin can create staff.
+        if (!isSuperAdmin) {
+          throw new Error(
+            "Only Super Admin can create staff accounts."
+          );
+        }
+
+        if (!form.name.trim()) {
+          throw new Error("Enter the staff member's name.");
+        }
+
+        if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) {
+          throw new Error("Enter a valid work email.");
+        }
+
+        if (form.password.length < 8) {
+          throw new Error(
+            "Password must contain at least 8 characters."
+          );
+        }
+
+        if (!form.organizationId) {
+          throw new Error("Select an organization.");
+        }
+
+        if (!CRM_ROLES.includes(form.role)) {
+          throw new Error("Select a valid staff role.");
+        }
+
         await createApiStaffUser(
-          payload,
+          {
+            ...form,
+            name: form.name.trim(),
+            email: form.email.trim().toLowerCase(),
+          },
           authenticatedRequest
         );
+
+        setNotice("Staff account created successfully.");
       }
 
       setShowEditor(false);
-
-      setNotice(
-        editing
-          ? "Staff account updated in Django."
-          : "Staff account created in Django."
-      );
+      setEditing(null);
 
       await refresh();
-    } catch (saveError) {
+    } catch (err) {
       setError(
-        saveError.message ||
-          "The Django API could not save this staff account."
+        err.message || "Could not save staff changes."
       );
     } finally {
       setBusy(false);
     }
   }
 
-  async function toggleActive(record) {
-    const nextStatus = !record.active;
-
-    if (
-      String(record.id) === String(currentUser?.id) &&
-      !nextStatus
-    ) {
-      setError(
-        "You cannot deactivate your own signed-in account."
-      );
-      return;
-    }
-
-    setError("");
-    setNotice("");
-
-    try {
-      await updateApiStaffUser(
-        record.id,
-        { active: nextStatus },
-        authenticatedRequest
-      );
-
-      setNotice(
-        `${record.name} is now ${
-          nextStatus ? "active" : "inactive"
-        }.`
-      );
-
-      await refresh();
-    } catch (updateError) {
-      setError(
-        updateError.message ||
-          "Could not update the staff account."
-      );
-    }
-  }
+  const editorTitle = editing
+    ? `Assign permissions: ${editing.name}`
+    : "Create staff account";
 
   return (
     <div className="crm-page">
       <PageHeader
         title="Users & Permissions"
-        description="Manage staff accounts stored in the Django database."
+        description={
+          isSuperAdmin
+            ? "Create staff accounts and assign their organization and page access."
+            : "Manage page permissions for staff in your organization."
+        }
         action={
-          <button
-            type="button"
-            className="crm-button crm-button-primary"
-            onClick={openCreate}
-          >
-            <UserPlus size={16} />
-            Add staff user
-          </button>
+          isSuperAdmin ? (
+            <button
+              type="button"
+              className="crm-button crm-button-primary"
+              onClick={openCreate}
+            >
+              <UserPlus size={16} />
+              Add staff user
+            </button>
+          ) : null
         }
       />
-
-      <div className="crm-demo-notice">
-        Staff records are loaded from Django. Passwords are
-        submitted to the backend and must be securely hashed there.
-        If the API fails, demo data will not be displayed.
-      </div>
 
       {notice && (
         <div className="crm-success-banner" role="status">
@@ -320,21 +371,21 @@ function UserManagement() {
         <MetricCard
           label="Active accounts"
           value={activeCount}
-          note="Active staff accounts"
+          note="Currently active staff"
           tone="green"
         />
 
         <MetricCard
-          label="Active Admins"
+          label="Organization Admins"
           value={adminCount}
-          note="Active organization administrators"
+          note="Active Admin accounts"
           tone="purple"
         />
       </div>
 
       <SectionCard
         title="Staff directory"
-        subtitle="Staff records come from the authenticated Django API."
+        subtitle="Staff records are loaded from the authenticated Django API."
         action={
           <button
             type="button"
@@ -356,8 +407,8 @@ function UserManagement() {
               onChange={(event) =>
                 setQuery(event.target.value)
               }
-              placeholder="Search name, email or user ID..."
-              aria-label="Search staff users"
+              placeholder="Search name, email or ID..."
+              aria-label="Search staff"
             />
           </label>
 
@@ -396,24 +447,19 @@ function UserManagement() {
           </label>
 
           <span className="crm-result-count">
-            {visibleUsers.length} account
-            {visibleUsers.length === 1 ? "" : "s"}
+            {visibleUsers.length} account(s)
           </span>
         </div>
 
         {loading ? (
-          <p role="status">Loading staff accounts from Django...</p>
+          <p role="status">Loading staff accounts...</p>
         ) : visibleUsers.length === 0 ? (
           <EmptyState
-            title={
-              error
-                ? "Staff accounts could not be loaded"
-                : "No staff accounts found"
-            }
+            title="No staff accounts found"
             message={
               error
-                ? "Check the API error above and try refreshing."
-                : "No staff accounts match these filters."
+                ? "Check the API error and refresh."
+                : "No staff accounts match the selected filters."
             }
           />
         ) : (
@@ -423,6 +469,8 @@ function UserManagement() {
                 <tr>
                   <th>Staff member</th>
                   <th>Role</th>
+                  <th>Organization ID</th>
+                  <th>Page permissions</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -452,7 +500,6 @@ function UserManagement() {
                               {record.name}
                               {isSelf ? " (you)" : ""}
                             </strong>
-
                             <small>{record.email}</small>
                           </span>
                         </div>
@@ -461,6 +508,14 @@ function UserManagement() {
                       <td>
                         {ROLE_LABELS[record.role] ||
                           record.role}
+                      </td>
+
+                      <td>
+                        {record.organizationId || "—"}
+                      </td>
+
+                      <td>
+                        {record.permissions?.length || 0} assigned
                       </td>
 
                       <td>
@@ -474,35 +529,22 @@ function UserManagement() {
                       </td>
 
                       <td>
-                        <div className="crm-row-actions">
+                        {isOrganizationAdmin && !isSelf ? (
                           <button
-                            className="crm-button crm-button-secondary crm-button-small"
                             type="button"
-                            onClick={() => openEdit(record)}
-                          >
-                            <Pencil size={13} />
-                            Edit
-                          </button>
-
-                          <button
                             className="crm-button crm-button-secondary crm-button-small"
-                            type="button"
-                            disabled={isSelf}
                             onClick={() =>
-                              toggleActive(record)
+                              openPermissionEditor(record)
                             }
                           >
-                            {record.active ? (
-                              <UserX size={13} />
-                            ) : (
-                              <ShieldCheck size={13} />
-                            )}
-
-                            {record.active
-                              ? "Deactivate"
-                              : "Activate"}
+                            <ShieldCheck size={13} />
+                            Assign pages
                           </button>
-                        </div>
+                        ) : isSelf ? (
+                          <span>Own account</span>
+                        ) : (
+                          <span>Managed at creation</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -515,19 +557,20 @@ function UserManagement() {
 
       {showEditor && (
         <Modal
-          title={
+          title={editorTitle}
+          description={
             editing
-              ? "Edit staff account"
-              : "Create staff account"
+              ? "Select only the CRM pages this staff member is allowed to access."
+              : "Create a staff account and explicitly choose its page permissions."
           }
-          description="Account changes are submitted to the Django backend."
           onClose={() => {
             if (!busy) {
               setShowEditor(false);
+              setEditing(null);
               setError("");
             }
           }}
-          width="940px"
+          width="900px"
         >
           <form
             className="crm-form crm-user-editor"
@@ -539,131 +582,145 @@ function UserManagement() {
               </div>
             )}
 
-            <div className="crm-form-grid">
-              <label className="crm-form-field">
-                Full name *
+            {!editing && (
+              <>
+                <div className="crm-form-grid">
+                  <label className="crm-form-field">
+                    Full name *
 
-                <input
-                  value={form.name}
-                  onChange={(event) =>
-                    updateField("name", event.target.value)
-                  }
-                  maxLength={90}
-                  required
-                  autoComplete="name"
-                />
-              </label>
+                    <input
+                      value={form.name}
+                      onChange={(event) =>
+                        updateField("name", event.target.value)
+                      }
+                      maxLength={150}
+                      required
+                    />
+                  </label>
 
-              <label className="crm-form-field">
-                Work email *
+                  <label className="crm-form-field">
+                    Work email *
 
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(event) =>
-                    updateField("email", event.target.value)
-                  }
-                  required
-                  autoComplete="email"
-                />
-              </label>
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(event) =>
+                        updateField("email", event.target.value)
+                      }
+                      required
+                    />
+                  </label>
 
-              <label className="crm-form-field">
-                Role *
+                  <label className="crm-form-field">
+                    Role *
 
-                <select
-                  value={form.role}
-                  disabled={
-                    Boolean(
-                      editing &&
-                        String(editing.id) ===
-                          String(currentUser?.id)
-                    )
-                  }
-                  onChange={(event) =>
-                    updateField("role", event.target.value)
-                  }
-                >
-                  {CRM_ROLES.map((role) => (
-                    <option key={role} value={role}>
-                      {ROLE_LABELS[role] || role}
-                    </option>
-                  ))}
-                </select>
+                    <select
+                      value={form.role}
+                      onChange={(event) =>
+                        updateField("role", event.target.value)
+                      }
+                    >
+                      {CRM_ROLES.map((role) => (
+                        <option key={role} value={role}>
+                          {ROLE_LABELS[role] || role}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
 
-                <small>
-                  {roleDescription[form.role] ||
-                    "Workspace role"}
-                </small>
-              </label>
+                  <label className="crm-form-field">
+                    Initial password *
 
-              <label className="crm-form-field">
-                {editing
-                  ? "Reset password (optional)"
-                  : "Initial password *"}
+                    <input
+                      type="password"
+                      value={form.password}
+                      onChange={(event) =>
+                        updateField("password", event.target.value)
+                      }
+                      minLength={8}
+                      required
+                      autoComplete="new-password"
+                    />
+                  </label>
 
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(event) =>
-                    updateField(
-                      "password",
-                      event.target.value
-                    )
-                  }
-                  required={!editing}
-                  minLength={8}
-                  autoComplete="new-password"
-                  placeholder={
-                    editing
-                      ? "Leave blank to keep current password"
-                      : "At least 8 characters"
-                  }
-                />
+                  <label className="crm-form-field">
+                    Organization *
 
-                <small>
-                  The password is sent to Django and must be
-                  hashed by the backend.
-                </small>
-              </label>
-            </div>
+                    <select
+                      value={form.organizationId}
+                      onChange={(event) =>
+                        updateField(
+                          "organizationId",
+                          event.target.value
+                        )
+                      }
+                      required
+                      disabled={organizationsLoading}
+                    >
+                      <option value="">
+                        {organizationsLoading
+                          ? "Loading organizations..."
+                          : "Select organization"}
+                      </option>
 
-            {editing && (
-              <label
-                className={`crm-user-active-toggle ${
-                  String(editing.id) ===
-                  String(currentUser?.id)
-                    ? "is-disabled"
-                    : ""
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={form.active}
-                  disabled={
-                    String(editing.id) ===
-                    String(currentUser?.id)
-                  }
-                  onChange={(event) =>
-                    updateField(
-                      "active",
-                      event.target.checked
-                    )
-                  }
-                />
+                      {organizations.map((organization) => (
+                        <option
+                          key={organization.id}
+                          value={organization.id}
+                        >
+                          {organization.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
 
-                <span>
-                  <strong>Account active</strong>
-                  <small>
-                    Inactive accounts cannot sign in.
-                  </small>
-                </span>
-              </label>
+                <div className="crm-demo-notice">
+                  The staff identity and organization are assigned
+                  during creation. They cannot be edited here later.
+                </div>
+              </>
             )}
 
+            <SectionCard
+              title="Page access permissions"
+              subtitle={`${form.permissions.length} page(s) selected. Unselected pages will be denied.`}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                }}
+              >
+                {PERMISSION_OPTIONS.map(([key, label]) => (
+                  <label
+                    key={key}
+                    className="crm-user-active-toggle"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.permissions.includes(key)}
+                      onChange={(event) =>
+                        togglePermission(
+                          key,
+                          event.target.checked
+                        )
+                      }
+                    />
+
+                    <span>
+                      <strong>{label}</strong>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </SectionCard>
+
             <div className="crm-demo-notice">
-              Access to protected data must be enforced by Django
-              using the account's role and organization.
+              Access is assigned per page. Django must independently
+              enforce these permissions for API requests.
             </div>
 
             <div className="crm-form-actions">
@@ -673,6 +730,7 @@ function UserManagement() {
                 disabled={busy}
                 onClick={() => {
                   setShowEditor(false);
+                  setEditing(null);
                   setError("");
                 }}
               >
@@ -682,12 +740,17 @@ function UserManagement() {
               <button
                 type="submit"
                 className="crm-button crm-button-primary"
-                disabled={busy}
+                disabled={
+                  busy ||
+                  (!editing &&
+                    (organizationsLoading ||
+                      organizations.length === 0))
+                }
               >
                 {busy
                   ? "Saving..."
                   : editing
-                    ? "Save staff changes"
+                    ? "Save permissions"
                     : "Create staff account"}
               </button>
             </div>

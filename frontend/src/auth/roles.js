@@ -9,11 +9,23 @@ export const CRM_ROLES = [
 
 export const ROLE_LABELS = {
   ADMIN: "Administrator",
-  CRM_MANAGER: "CRM Manager",
-  SUPPORT_AGENT: "Support Agent",
-  MARKETING_MANAGER: "Marketing Manager",
-  ANALYST: "Analyst / Management",
+
+  // Legacy frontend role aliases
+  CRM_MANAGER: "Sales",
+  SUPPORT_AGENT: "Support",
+  MARKETING_MANAGER: "Marketing",
+
+  // Actual Django role names
+  SALES: "Sales",
+  MARKETING: "Marketing",
+  SUPPORT: "Support",
   OPERATIONS: "Operations",
+  MANAGEMENT: "Management",
+  ANALYST: "Analyst",
+
+  // Legacy label
+  ANALYST_LEGACY: "Analyst / Management",
+
   CUSTOMER: "Customer",
 };
 

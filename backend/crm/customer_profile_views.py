@@ -13,7 +13,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsSalesWriteOrSupportReadOnly
+from accounts.permissions import (
+    HasCRMPagePermission,
+    IsSalesWriteOrSupportReadOnly,
+)
 from .models import (
     AuditLog,
     Customer,
@@ -183,7 +186,8 @@ def _order_payload(order):
 
 class CustomerProfileOverviewView(APIView):
     """Single organization-scoped CRM read model for the customer 360° profile."""
-    permission_classes = [IsAuthenticated, IsSalesWriteOrSupportReadOnly]
+    crm_page_permission = "customerDetails"
+    permission_classes = [HasCRMPagePermission]
 
     def get(self, request, customer_id):
         customer = _staff_customer(request, customer_id)
@@ -457,7 +461,8 @@ class StorefrontCustomerProfileImageView(APIView):
 
 
 class CustomerProfileImageView(APIView):
-    permission_classes = [IsAuthenticated, IsSalesWriteOrSupportReadOnly]
+    crm_page_permission = "customerDetails"
+    permission_classes = [HasCRMPagePermission]
 
     def get(self, request, customer_id):
         customer = _staff_customer(request, customer_id)

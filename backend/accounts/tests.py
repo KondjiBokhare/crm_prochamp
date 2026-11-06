@@ -305,6 +305,28 @@ class AccountRoleAccessTests(APITestCase):
         self.assertFalse(IsAdmin().has_permission(request, None))
         self.assertTrue(IsAdmin().has_permission(superadmin_request, None))
 
+    def test_me_endpoint_returns_permissions_and_organization_id(self):
+        self.sales.organization = self.organization
+        self.sales.crm_permissions = ["orders", "customers"]
+        self.sales.save(
+            update_fields=["organization", "crm_permissions"]
+        )
+
+        self.client.force_authenticate(self.sales)
+
+        response = self.client.get("/api/auth/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["permissions"],
+            ["orders", "customers"],
+        )
+        self.assertEqual(
+            response.data["organization_id"],
+            self.organization.pk,
+        )
+        self.assertFalse(response.data["is_superuser"])
+
 class CustomJWTTokenTests(SimpleTestCase):
 
     def setUp(self):
