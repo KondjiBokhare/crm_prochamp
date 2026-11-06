@@ -84,6 +84,8 @@ class AuditLogAPITests(APITestCase):
         return response.data
 
     def test_customer_creation_creates_audit_log(self):
+        self.admin_a.crm_permissions = ["customers"]
+        self.admin_a.save(update_fields=["crm_permissions"])
         self.authenticate(self.admin_a)
 
         response = self.client.post(
@@ -324,7 +326,33 @@ class AuditLogAPITests(APITestCase):
             },
         )
 
+    def test_assigned_organization_admin_can_only_read_own_audit_logs(self):
+        self.admin_a.crm_permissions = ["auditLogs"]
+        self.admin_a.save(update_fields=["crm_permissions"])
 
+        self.authenticate(self.admin_a)
+
+        response = self.client.get(
+            self.audit_url,
+            {"organization_id": self.org_b.pk},
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            response.data,
+        )
+
+        items = self.response_items(response)
+
+        self.assertTrue(items)
+
+        self.assertEqual(
+            {item["organization_id"] for item in items},
+            {self.org_a.pk},
+        )
+     
+      
 class ProductAccessAPITests(APITestCase):
     """Product reads are public; catalogue writes are restricted to Management."""
 
@@ -349,6 +377,7 @@ class ProductAccessAPITests(APITestCase):
             password="Test@12345",
             role="MANAGEMENT",
             organization=self.organization,
+            crm_permissions=["products"],
         )
         self.sales = User.objects.create_user(
             email="sales-products@test.com",
@@ -421,4 +450,50 @@ class ProductAccessAPITests(APITestCase):
                 movement_type=StockMovement.MovementType.RESTOCK,
                 quantity_delta=3,
             ).exists()
+        )
+    def test_management_role_without_products_permission_cannot_create_product(self):
+        manager = User.objects.create_user(
+            email="manager-no-permission@test.com",
+            password="Test@12345",
+            role="MANAGEMENT",
+            organization=self.organization,
+            crm_permissions=[],
+        )
+
+        self.authenticate(manager)
+
+        response = self.client.post(
+            "/api/crm/products/",
+            self.payload("DENIED-001"),
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_sales_user_with_products_permission_can_create_product(self):
+        self.sales.crm_permissions = ["products"]
+        self.sales.save(update_fields=["crm_permissions"])
+
+        self.authenticate(self.sales)
+
+        response = self.client.post(
+            "/api/crm/products/",
+            self.payload("SALES-001"),
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+            response.data,
+        )
+
+        product = Product.objects.get(sku="SALES-001")
+
+        self.assertEqual(
+            product.organization_id,
+            self.organization.pk,
         )
