@@ -4,7 +4,14 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics, serializers
 from rest_framework.permissions import IsAuthenticated
 
-from .models import AuditLog, Customer, CrmAddress, CrmCustomerProfile, CrmSavedPaymentMethod
+from .models import (
+    AuditLog,
+    Customer,
+    CrmAddress,
+    CrmCustomerProfile,
+    CrmSavedPaymentMethod,
+    Notification,
+)
 from .storefront_utils import ensure_storefront_customer, get_storefront_organization
 
 User = get_user_model()
@@ -280,7 +287,12 @@ from .models import (
     SupportTicket,
     SupportTicketMessage,
 )
-from .serializers import OrderSerializer, SupportTicketSerializer, SupportTicketMessageSerializer
+from .serializers import (
+    OrderSerializer,
+    SupportTicketSerializer,
+    SupportTicketMessageSerializer,
+    NotificationSerializer,
+)
 from .storefront_utils import ensure_storefront_customer, get_storefront_organization
 
 _MONEY_QUANT = Decimal("0.01")
@@ -299,6 +311,111 @@ def _storefront_customer_context(request):
     if customer is None:
         raise PermissionDenied("The customer account could not be linked to the storefront CRM organization.")
     return organization, customer
+
+def _customer_can_view_notification(notification, user):
+    email = str(user.email or "").strip().lower()
+
+    if notification.recipient_email:
+        return notification.recipient_email.strip().lower() == email
+
+    recipient_emails = [
+        str(value).strip().lower()
+        for value in (notification.recipient_emails or [])
+    ]
+
+    if recipient_emails:
+        return email in recipient_emails
+
+    return notification.audience == "customer"
+
+
+class StorefrontCustomerNotificationListView(APIView):
+    permission_classes = [IsStorefrontCustomer]
+
+    def get(self, request):
+        organization, _customer = _storefront_customer_context(request)
+
+        records = (
+            Notification.objects
+            .filter(
+                organization=organization,
+                audience="customer",
+            )
+            .prefetch_related("read_by")
+            .order_by("-created_at")
+        )
+
+        visible = [
+            item
+            for item in records
+            if _customer_can_view_notification(item, request.user)
+        ][:500]
+
+        serializer = NotificationSerializer(
+            visible,
+            many=True,
+            context={"request": request},
+        )
+
+        return Response(serializer.data)
+
+
+class StorefrontCustomerNotificationReadView(APIView):
+    permission_classes = [IsStorefrontCustomer]
+
+    def post(self, request, pk):
+        organization, _customer = _storefront_customer_context(request)
+
+        item = get_object_or_404(
+            Notification,
+            organization=organization,
+            audience="customer",
+            pk=pk,
+        )
+
+        if not _customer_can_view_notification(item, request.user):
+            raise PermissionDenied(
+                "This notification is not addressed to your account."
+            )
+
+        item.read_by.add(request.user)
+
+        return Response(
+            NotificationSerializer(
+                item,
+                context={"request": request},
+            ).data
+        )
+
+
+class StorefrontCustomerNotificationReadAllView(APIView):
+    permission_classes = [IsStorefrontCustomer]
+
+    def post(self, request):
+        organization, _customer = _storefront_customer_context(request)
+
+        records = (
+            Notification.objects
+            .filter(
+                organization=organization,
+                audience="customer",
+            )
+            .prefetch_related("read_by")
+            .order_by("-created_at")
+        )
+
+        visible = [
+            item
+            for item in records
+            if _customer_can_view_notification(item, request.user)
+        ][:500]
+
+        if visible:
+            request.user.read_crm_notifications.add(*visible)
+
+        return Response({
+            "markedRead": len(visible)
+        })
 
 
 class StorefrontCustomerSummaryView(APIView):

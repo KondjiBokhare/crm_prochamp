@@ -95,7 +95,24 @@ storefront_account_urlpatterns = [
     path("summary/", views.StorefrontCustomerSummaryView.as_view(), name="storefront-customer-summary", ),
     path("profile/", views.StorefrontCustomerProfileView.as_view(), name="storefront-customer-profile"),
 
-    path("profile-image/", views.StorefrontCustomerProfileImageView.as_view(), name="storefront-customer-profile-image"),
+    path("profile-image/", views.StorefrontCustomerProfileImageView.as_view(), 
+    name="storefront-customer-profile-image"),
+    path(
+        "notifications/",
+        views.StorefrontCustomerNotificationListView.as_view(),
+        name="storefront-customer-notifications",
+    ),
+    path(
+        "notifications/read-all/",
+        views.StorefrontCustomerNotificationReadAllView.as_view(),
+        name="storefront-customer-notifications-read-all",
+    ),
+    path(
+        "notifications/<int:pk>/read/",
+        views.StorefrontCustomerNotificationReadView.as_view(),
+        name="storefront-customer-notification-read",
+    ),
+
     path("addresses/", views.StorefrontAddressListCreateView.as_view(), name="storefront-customer-address-list-create"),
     path("addresses/<int:pk>/", views.StorefrontAddressDetailView.as_view(), name="storefront-customer-address-detail"),
     path("payment-methods/", views.StorefrontSavedPaymentMethodListCreateView.as_view(), name="storefront-customer-payment-method-list-create"),
