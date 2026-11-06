@@ -21,6 +21,11 @@ export const PAGE_PERMISSION_LABELS = {
   inventory: "Inventory and stock movements",
   coupons: "Coupons and discounts",
   abandonedCarts: "Abandoned cart reporting",
+  shipments: "Shipments",
+  returns: "Returns",
+  orderActivity: "Order activity",
+  productReviews: "Product reviews",
+  auditLogs: "Audit logs",
 };
 
 const ADMIN_ONLY_PAGES = new Set([
@@ -40,19 +45,32 @@ export function defaultPermissionsForRole(role) {
 }
 
 export function canUserAccessPage(user, pageKey) {
-  if (!user?.role || !PAGE_ROLES[pageKey]) {
+  if (!user || !PAGE_ROLES[pageKey]) {
     return false;
   }
 
-  const role = normaliseRole(user.role);
-
-  if (ADMIN_ONLY_PAGES.has(pageKey)) {
-    return role === "ADMIN";
+  // Super Admin always has global CRM access.
+  if (
+    user.isSuperAdmin === true ||
+    user.is_super_admin === true
+  ) {
+    return true;
   }
 
+  const role = normaliseRole(
+    user.backendRole || user.role
+  );
+
+  // Sensitive administrative pages remain restricted.
+  if (ADMIN_ONLY_PAGES.has(pageKey) && role !== "ADMIN") {
+    return false;
+  }
+
+  // No role-based fallback.
+  // Only permissions explicitly assigned to this employee count.
   const permissions = Array.isArray(user.permissions)
     ? user.permissions
-    : defaultPermissionsForRole(role);
+    : [];
 
   return permissions.includes(pageKey);
 }

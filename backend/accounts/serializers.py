@@ -115,10 +115,22 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 # Authenticated user profile serializer
 class UserSerializer(serializers.ModelSerializer):
-    """Serialize read-only user profile information."""
+    """Serialize the authenticated user's profile and CRM permissions."""
+
+    permissions = serializers.ListField(
+        child=serializers.CharField(),
+        source="crm_permissions",
+        read_only=True,
+    )
+
+    organization_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+    )
 
     class Meta:
         model = User
+
         fields = [
             "id",
             "email",
@@ -128,24 +140,11 @@ class UserSerializer(serializers.ModelSerializer):
             "date_joined",
             "first_name",
             "last_name",
-        ]
-        read_only_fields = [
-            "id",
-            "email",
-            "role",
-            "is_superuser",
-            "is_active",
-            "date_joined",
-            "first_name",
-            "last_name",
+            "permissions",
+            "organization_id",
         ]
 
-        permissions = serializers.ListField(
-          child=serializers.CharField(),
-          source="crm_permissions",
-          read_only=True,
-        )
-
+        read_only_fields = fields
 
 # Admin staff and user management serializer
 # class StaffUserSerializer(serializers.ModelSerializer):
@@ -381,6 +380,9 @@ PAGE_PERMISSION_KEYS = [
     "customers",
     "leads",
     "orders",
+    "shipments",
+    "returns",
+    "orderActivity",
     "support",
     "customerDetails",
     "interactions",
@@ -388,8 +390,10 @@ PAGE_PERMISSION_KEYS = [
     "campaigns",
     "communications",
     "analytics",
+    "auditLogs",
     "banners",
     "products",
+    "productReviews",
     "categories",
     "storefrontSettings",
     "homepagePromotions",

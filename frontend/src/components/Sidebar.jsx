@@ -73,7 +73,12 @@ function Sidebar() {
         <span className="crm-sidebar-avatar" aria-hidden="true">{initials}</span>
         <div className="crm-sidebar-footer-details">
           <strong>{displayName}</strong>
-          <span>{ROLE_LABELS[user?.role] || user?.role || "Demo user"}</span>
+          <span>
+        {ROLE_LABELS[user?.backendRole] ||
+          ROLE_LABELS[user?.role] ||
+          user?.role ||
+          "CRM User"}
+      </span>
         </div>
         <button
           type="button"
