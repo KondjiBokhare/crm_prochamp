@@ -95,6 +95,7 @@ class AccountRoleAccessTests(APITestCase):
             password="StrongTest@123",
             role=User.Role.ADMIN,
             organization=self.organization,
+            crm_permissions=["userManagement"],
         )
         self.sales = User.objects.create_user(
             email="sales@example.com",
@@ -143,6 +144,15 @@ class AccountRoleAccessTests(APITestCase):
         self.client.force_authenticate(self.superadmin)
         response = self.client.get("/api/auth/staff/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_organization_admin_without_page_permission_cannot_list_staff(self):
+        self.admin.crm_permissions = []
+        self.admin.save(update_fields=["crm_permissions"])
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get("/api/auth/staff/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_organization_admin_can_update_permissions_only_within_own_organization(self):
         own_user = User.objects.create_user(

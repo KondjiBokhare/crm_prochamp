@@ -35,12 +35,14 @@ from .serializers import (
     SegmentSerializer,
     CampaignSerializer,
     CampaignResponseSerializer,
-    AnalyticsSerializer, 
+    AnalyticsSerializer,
 )
 
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import (
     HasCRMPagePermission,
+    IsActiveOrganizationEmployee,
+    IsAuditLogReader,
     IsCustomer,
     IsPublicProductReadOnly,
     IsSalesWriteOrSupportReadOnly,
@@ -349,7 +351,7 @@ class OrderListCreateView(generics.ListCreateAPIView):
             "customer"
         )
 
-        
+
     def perform_create(self, serializer):
         user = self.request.user
 
@@ -400,10 +402,23 @@ class OrderDetailView(
         ).select_related(
             "customer"
         )
-    
+
+
     def perform_update(self, serializer):
+        previous_status = serializer.instance.status
+
         order = serializer.save()
+
+        # Notify customer only when the order status actually changes.
+        if order.status != previous_status:
+            _create_customer_order_notification(
+                order=order,
+                order_status=order.status,
+                created_by=self.request.user,
+            )
+
         update_customer_lifecycle(order.customer)
+
         create_audit_log(
             organization=order.organization,
             user=self.request.user,
@@ -413,6 +428,7 @@ class OrderDetailView(
             description=f"Updated order {order.order_number}",
             ip_address=self.request.META.get("REMOTE_ADDR"),
         )
+
 
     def perform_destroy(self, instance):
         # Crm orders are a customer-visible audit trail; cancel/update them
@@ -789,7 +805,7 @@ class AuditLogListView(generics.ListAPIView):
     serializer_class = AuditLogSerializer
 
     crm_page_permission = "auditLogs"
-    permission_classes = [HasCRMPagePermission]
+    permission_classes = [IsAuditLogReader]
 
     def get_queryset(self):
         user = self.request.user
@@ -921,10 +937,6 @@ class IsPublicReadOrCRMPageAllowed(BasePermission):
         # Anonymous users can only read public products.
         if not user or not user.is_authenticated:
             return request.method in SAFE_METHODS
-
-        # Platform Super Admin has global access.
-        if user.is_superuser:
-            return True
 
         # Storefront customers can only read public products.
         if user.role == "CUSTOMER":
@@ -2079,6 +2091,13 @@ def _frontend_role_for_backend(role):
 
 
 def _notification_is_visible_to_user(item, user):
+    if (
+        item.audience not in {"crm", "all"}
+        or user.role == "CUSTOMER"
+        or item.organization_id != user.organization_id
+    ):
+        return False
+
     email = str(user.email or "").strip().lower()
     backend_role = str(user.role or "").strip().upper()
     frontend_role = _frontend_role_for_backend(backend_role)
@@ -2111,8 +2130,7 @@ def _create_staff_notification(organization, title, message, *, notification_typ
 
 
 class NotificationListCreateView(APIView):
-    crm_page_permission = "communications"
-    permission_classes = [HasCRMPagePermission]
+    permission_classes = [IsActiveOrganizationEmployee]
 
     def get(self, request):
         organization = _require_organization(request)
@@ -2149,8 +2167,7 @@ class NotificationListCreateView(APIView):
 
 
 class NotificationReadView(APIView):
-    crm_page_permission = "communications"
-    permission_classes = [HasCRMPagePermission]
+    permission_classes = [IsActiveOrganizationEmployee]
 
     def post(self, request, pk):
         organization = _require_organization(request)
@@ -2162,8 +2179,7 @@ class NotificationReadView(APIView):
 
 
 class NotificationReadAllView(APIView):
-    crm_page_permission = "communications"
-    permission_classes = [HasCRMPagePermission]
+    permission_classes = [IsActiveOrganizationEmployee]
 
     def post(self, request):
         organization = _require_organization(request)
@@ -2222,7 +2238,7 @@ class CustomerBehaviorAnalyticsView(APIView):
     permission_classes = [HasCRMPagePermission]
 
     def get(self, request):
-         
+
         organization = _require_organization(request)
         try:
             days = int(request.query_params.get("days", "30"))
@@ -2429,6 +2445,25 @@ def _phase25_Crm_org(request):
     return organization_id
 
 
+def _phase25_wishlist_scope(request, visitor_id):
+    """
+    Use a server-controlled identity for authenticated customers.
+    Preserve browser visitor IDs for guests.
+    """
+    user = getattr(request, "user", None)
+
+    if user and user.is_authenticated:
+        if not user.is_active or user.role != "CUSTOMER":
+            raise PermissionDenied(
+                "Only active customer accounts can access the storefront wishlist."
+            )
+
+        return f"customer-{user.pk}"
+
+    return _phase25_visitor_id(visitor_id)
+
+
+
 def _phase25_cart_payload(cart):
     rows = []
     for item in cart.items.select_related("product", "product__category").all():
@@ -2504,30 +2539,77 @@ class CrmWishlistView(APIView):
         ).select_related("product", "product__category"))
         return {"visitorId": visitor_id, "productIds": [item.product_id for item in items], "items": _ProductSerializer([item.product for item in items], many=True).data}
 
+
+
+
     def get(self, request):
         organization_id = _phase25_Crm_org(request)
+
         if not organization_id:
-            return Response({"productIds": [], "items": []}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        visitor_id = _phase25_visitor_id(request.query_params.get("visitor_id"))
+            return Response(
+                {"productIds": [], "items": []},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        visitor_id = _phase25_wishlist_scope(
+            request,
+            request.query_params.get("visitor_id"),
+        )
+
         return Response(self._payload(organization_id, visitor_id))
+
 
     def put(self, request):
         organization_id = _phase25_Crm_org(request)
+
         if not organization_id:
-            return Response({"detail": "The Crm organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(
+                {"detail": "The Crm organization is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         serializer = _CrmWishlistSyncSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        visitor_id = serializer.validated_data["visitor_id"]
+
+        visitor_id = _phase25_wishlist_scope(
+            request,
+            serializer.validated_data["visitor_id"],
+        )
+
         product_ids = serializer.validated_data["product_ids"]
-        products = list(_Product.objects.filter(organization_id=organization_id, status="Active", category__is_active=True, pk__in=product_ids).select_related("category"))
+
+        products = list(
+            _Product.objects.filter(
+                organization_id=organization_id,
+                status="Active",
+                category__is_active=True,
+                pk__in=product_ids,
+            ).select_related("category")
+        )
+
         if len(products) != len(product_ids):
-            raise ValidationError({"product_ids": "One or more products are unavailable or belong to another Crm."})
+            raise ValidationError({
+                "product_ids": (
+                    "One or more products are unavailable "
+                    "or belong to another Crm."
+                )
+            })
+
         with transaction.atomic():
-            _CrmWishlistItem.objects.filter(organization_id=organization_id, visitor_id=visitor_id).delete()
+            _CrmWishlistItem.objects.filter(
+                organization_id=organization_id,
+                visitor_id=visitor_id,
+            ).delete()
+
             _CrmWishlistItem.objects.bulk_create([
-                _CrmWishlistItem(organization_id=organization_id, visitor_id=visitor_id, product=product)
+                _CrmWishlistItem(
+                    organization_id=organization_id,
+                    visitor_id=visitor_id,
+                    product=product,
+                )
                 for product in products
             ])
+
         return Response(self._payload(organization_id, visitor_id))
 
 
@@ -2585,7 +2667,7 @@ class CRMProductReviewListView(generics.ListAPIView):
     permission_classes = [HasCRMPagePermission]
 
     def get_queryset(self):
-         
+
         organization = _require_organization(self.request)
         queryset = _ProductReview.objects.filter(organization=organization).select_related("product")
         review_status = self.request.query_params.get("status", "PENDING").upper()
@@ -2608,7 +2690,7 @@ class CRMProductReviewStatusView(APIView):
     permission_classes = [HasCRMPagePermission]
 
     def patch(self, request, pk):
-         
+
         organization = _require_organization(request)
         review = get_object_or_404(_ProductReview.objects.select_related("product"), pk=pk, organization=organization)
         next_status = str(request.data.get("status", "")).upper()
@@ -2905,6 +2987,79 @@ def _record_order_event(*, order, user, event_type, message, metadata=None):
     )
 
 
+def _create_customer_order_notification(
+    order,
+    order_status,
+    created_by=None,
+    shipment=None,
+):
+    """Create one persistent, account-specific customer order notification."""
+
+    notification_content = {
+        Order.OrderStatus.CONFIRMED: (
+            "Order Confirmed",
+            f"Your order {order.order_number} has been confirmed.",
+        ),
+        Order.OrderStatus.SHIPPED: (
+            "Order Shipped",
+            f"Your order {order.order_number} has been shipped.",
+        ),
+        Order.OrderStatus.DELIVERED: (
+            "Order Delivered",
+            f"Your order {order.order_number} has been delivered. We hope you enjoy your purchase!",
+        ),
+    }
+
+    content = notification_content.get(order_status)
+    if not content:
+        return None
+
+    email = str(order.customer.email or "").strip().lower()
+    if not email:
+        return None
+
+    title, message = content
+
+    metadata = {
+        "order_id": order.pk,
+        "order_number": order.order_number,
+        "order_status": order_status,
+    }
+
+    if shipment:
+        metadata.update({
+            "shipment_id": shipment.pk,
+            "tracking_number": shipment.tracking_number,
+            "carrier": shipment.carrier,
+        })
+
+    # Avoid duplicate notifications for the same order and status.
+    existing = _Notification.objects.filter(
+        organization=order.organization,
+        audience="customer",
+        recipient_email__iexact=email,
+        source="order-status",
+        metadata__contains=metadata,
+    ).first()
+
+    if existing:
+        return existing
+
+    return _Notification.objects.create(
+        organization=order.organization,
+        title=title,
+        message=message,
+        notification_type="order",
+        audience="customer",
+        recipient_email=email,
+        link="/orders",
+        source="order-status",
+        metadata=metadata,
+        created_by=created_by,
+    )
+
+
+
 class OrderShipmentListCreateView(generics.ListCreateAPIView):
     serializer_class = OrderShipmentSerializer
     crm_page_permission = "shipments"
@@ -2947,34 +3102,100 @@ class OrderShipmentDetailView(generics.RetrieveUpdateAPIView):
     def get_queryset(self):
         return OrderShipment.objects.filter(organization=self.request.user.organization).select_related("order", "order__customer", "created_by")
 
+
     def perform_update(self, serializer):
         previous = serializer.instance.status
         shipment = serializer.save()
+
         if shipment.status != previous:
             fields = ["updated_at"]
-            if shipment.status in {OrderShipment.Status.IN_TRANSIT, OrderShipment.Status.OUT_FOR_DELIVERY, OrderShipment.Status.DELIVERED} and not shipment.shipped_at:
+
+            if (
+                shipment.status in {
+                    OrderShipment.Status.IN_TRANSIT,
+                    OrderShipment.Status.OUT_FOR_DELIVERY,
+                    OrderShipment.Status.DELIVERED,
+                }
+                and not shipment.shipped_at
+            ):
                 shipment.shipped_at = timezone.now()
                 fields.append("shipped_at")
-            if shipment.status == OrderShipment.Status.DELIVERED and not shipment.delivered_at:
+
+            if (
+                shipment.status == OrderShipment.Status.DELIVERED
+                and not shipment.delivered_at
+            ):
                 shipment.delivered_at = timezone.now()
                 fields.append("delivered_at")
+
             shipment.save(update_fields=fields)
-            _record_order_event(order=shipment.order, user=self.request.user, event_type=OrderActivityEvent.EventType.SHIPMENT,
-                message=f"Shipment {shipment.tracking_number} status changed from {previous} to {shipment.status}.",
-                metadata={"shipment_id": shipment.id, "previous_status": previous, "status": shipment.status})
+
+            _record_order_event(
+                order=shipment.order,
+                user=self.request.user,
+                event_type=OrderActivityEvent.EventType.SHIPMENT,
+                message=(
+                    f"Shipment {shipment.tracking_number} status "
+                    f"changed from {previous} to {shipment.status}."
+                ),
+                metadata={
+                    "shipment_id": shipment.id,
+                    "previous_status": previous,
+                    "status": shipment.status,
+                },
+            )
+
             order = shipment.order
             next_order_status = None
-            if shipment.status in {OrderShipment.Status.IN_TRANSIT, OrderShipment.Status.OUT_FOR_DELIVERY} and order.status in {Order.OrderStatus.PENDING, Order.OrderStatus.CONFIRMED, Order.OrderStatus.PROCESSING}:
+
+            if (
+                shipment.status in {
+                    OrderShipment.Status.IN_TRANSIT,
+                    OrderShipment.Status.OUT_FOR_DELIVERY,
+                }
+                and order.status in {
+                    Order.OrderStatus.PENDING,
+                    Order.OrderStatus.CONFIRMED,
+                    Order.OrderStatus.PROCESSING,
+                }
+            ):
                 next_order_status = Order.OrderStatus.SHIPPED
-            elif shipment.status == OrderShipment.Status.DELIVERED and order.status not in {Order.OrderStatus.CANCELLED, Order.OrderStatus.REFUNDED}:
+
+            elif (
+                shipment.status == OrderShipment.Status.DELIVERED
+                and order.status not in {
+                    Order.OrderStatus.CANCELLED,
+                    Order.OrderStatus.REFUNDED,
+                }
+            ):
                 next_order_status = Order.OrderStatus.DELIVERED
+
             if next_order_status and order.status != next_order_status:
                 previous_order_status = order.status
                 order.status = next_order_status
                 order.save(update_fields=["status", "updated_at"])
-                _record_order_event(order=order, user=self.request.user, event_type=OrderActivityEvent.EventType.STATUS,
-                    message=f"Order status changed from {previous_order_status} to {next_order_status} based on shipment tracking.",
-                    metadata={"shipment_id": shipment.id, "previous_status": previous_order_status, "status": next_order_status})
+
+                _record_order_event(
+                    order=order,
+                    user=self.request.user,
+                    event_type=OrderActivityEvent.EventType.STATUS,
+                    message=(
+                        f"Order status changed from {previous_order_status} "
+                        f"to {next_order_status} based on shipment tracking."
+                    ),
+                    metadata={
+                        "shipment_id": shipment.id,
+                        "previous_status": previous_order_status,
+                        "status": next_order_status,
+                    },
+                )
+
+                _create_customer_order_notification(
+                    order=order,
+                    order_status=next_order_status,
+                    created_by=self.request.user,
+                    shipment=shipment,
+                )
 
 
 class OrderReturnRequestListCreateView(generics.ListCreateAPIView):

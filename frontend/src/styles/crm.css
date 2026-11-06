@@ -69,6 +69,11 @@
 .crm-sidebar-footer div span { margin-top: 3px; color: #8893a3; font-size: 11px; }
 
 .crm-content { flex: 1 1 auto; min-width: 0; padding: 32px; overflow-x: clip; }
+.crm-workspace-toolbar { display: flex; justify-content: flex-end; min-height: 34px; margin: -12px 0 8px; }
+.crm-notification-center { position: relative; display: flex; align-items: center; gap: 9px; }
+.crm-notification-button { position: relative; display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; color: #34445d; cursor: pointer; }
+.crm-notification-button span { position: absolute; top: -5px; right: -6px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 10px; background: #e23b3b; color: #fff; font-size: 10px; line-height: 18px; text-align: center; }
+.crm-notification-error { color: #a53030; font-size: 11px; }
 .crm-page { width: 100%; max-width: 1600px; margin: 0 auto; }
 .crm-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; margin-bottom: 22px; }
 .crm-page-header h1 { margin: 7px 0 8px; color: #172033; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.2; letter-spacing: -.8px; }
@@ -854,3 +859,8 @@
 .crm-c360-linked-record p { margin: 5px 0 0; color: var(--crm-muted, #64748b); font-size: 13px; }
 .crm-c360-linked-record small { display: block; margin-top: 7px; color: var(--crm-muted, #64748b); }
 .crm-c360-linked-record a { display: inline-block; margin-top: 8px; font-size: 13px; text-decoration: underline; }
+/* Hide technical environment notices across CRM pages */
+.crm-layout .crm-demo-notice,
+.crm-layout .crm-info-banner {
+  display: none !important;
+}

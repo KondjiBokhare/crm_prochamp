@@ -16,6 +16,7 @@ import { useCart } from "../../context/CartContext";
 import { useWishlist } from "../../context/WishlistContext";
 
 import NotificationModal from "./NotificationModal";
+import { loadOptionalNotifications } from "../../services/optionalNotifications";
 import {
   getNotificationsForUser as getCrmNotificationsForUser,
   markNotificationReadForUser as markCrmNotificationReadForUser,
@@ -53,13 +54,12 @@ const { wishlistCount } = useWishlist();
   const loadNotifications = useCallback(async () => {
     if (!isAuthenticated || !user) { setNotifications([]); return; }
 
-    let apiRecords = [];
-    try {
-      const records = await getCrmNotificationsForUser(user, authenticatedRequest);
-      apiRecords = Array.isArray(records) ? records : [];
-    } catch (error) {
+    const { rows: apiRecords, error } = await loadOptionalNotifications(
+      () => getCrmNotificationsForUser(user, authenticatedRequest)
+    );
+    if (error) {
       // Local review reminders should still display while the notification API is unavailable.
-      console.warn("Could not load CRM notifications:", error.message);
+      console.warn("Could not load CRM notifications:", error);
     }
 
     const localReviewReminders = getLocalNotificationsForUser(user)

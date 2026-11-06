@@ -1,69 +1,133 @@
+
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { authenticateDemoCrmUser } from "../../auth/demoUsers";
 import { isApiAuthEnabled } from "../../services/authApi";
+import { getPermittedCrmPath } from "../../services/staffUserService";
 import {
   Eye,
   EyeOff,
   Mail,
   LockKeyhole,
-  
 } from "lucide-react";
 import { useState } from "react";
 
 import AuthLayout from "../../components/auth/AuthLayout";
 
 function Login() {
+  const navigate = useNavigate();
+  const location = useLocation();
 
-    const navigate = useNavigate();
-    const location = useLocation();
+  // Shared authentication for both Customer and CRM Staff.
+  const { login, loginWithBackend } = useAuth();
 
-const { login, loginWithBackend } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-const getPostLoginPath = (role, requestedPath) => {
-  const isCustomer = String(role || "").toUpperCase() === "CUSTOMER";
+  const getPostLoginPath = (authenticatedUser, requestedPath) => {
+    const role = String(authenticatedUser?.role || "")
+      .trim()
+      .toUpperCase();
 
-  const isValidRequestedPath =
-    typeof requestedPath === "string" &&
-    requestedPath.startsWith("/") &&
-    !requestedPath.startsWith("//") &&
-    !["/login", "/signup", "/crm/login"].includes(requestedPath);
+    const isCustomer = role === "CUSTOMER";
 
-  const isCrmPath =
-    isValidRequestedPath && requestedPath.startsWith("/crm");
+    const isValidRequestedPath =
+      typeof requestedPath === "string" &&
+      requestedPath.startsWith("/") &&
+      !requestedPath.startsWith("//") &&
+      !["/login", "/signup", "/crm/login"].includes(
+        requestedPath
+      );
 
-  if (isCustomer) {
-    return isValidRequestedPath && !isCrmPath
-      ? requestedPath
-      : "/profile";
-  }
+    const isCrmPath =
+      isValidRequestedPath &&
+      (requestedPath === "/crm" ||
+        requestedPath.startsWith("/crm/"));
 
-  return isCrmPath ? requestedPath : "/crm";
-};
+    // Storefront customers.
+    if (isCustomer) {
+      return isValidRequestedPath && !isCrmPath
+        ? requestedPath
+        : "/profile";
+    }
 
-const handleSubmit = async (event) => {
-  event.preventDefault();
-  setError("");
+    // All non-customer accounts are directed according
+    // to their actual assigned CRM page permissions.
+    return getPermittedCrmPath(
+      authenticatedUser,
+      isCrmPath ? requestedPath : ""
+    );
+  };
 
-  const formData = new FormData(event.currentTarget);
-  const email = String(formData.get("email") || "")
-    .trim()
-    .toLowerCase();
-  const password = String(formData.get("password") || "");
-
-  if (isApiAuthEnabled) {
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError("");
     setLoading(true);
 
-    try {
-      const authenticatedUser = await loginWithBackend(email, password);
+    const formData = new FormData(event.currentTarget);
 
-      navigate(
-        getPostLoginPath(authenticatedUser?.role, location.state?.from),
-        { replace: true }
+    const email = String(formData.get("email") || "")
+      .trim()
+      .toLowerCase();
+
+    const password = String(formData.get("password") || "");
+
+    try {
+      let authenticatedUser;
+
+      if (isApiAuthEnabled) {
+        // One Django login endpoint for EVERY account.
+        authenticatedUser = await loginWithBackend(
+          email,
+          password
+        );
+      } else {
+        // Local demo mode.
+        const demoStaff = authenticateDemoCrmUser(
+          email,
+          password
+        );
+
+        if (demoStaff) {
+          authenticatedUser = login(demoStaff);
+        } else {
+          const demoCustomerEmail = "test@test.com";
+          const demoCustomerPassword = "123456";
+
+          if (
+            email !== demoCustomerEmail ||
+            password !== demoCustomerPassword
+          ) {
+            throw new Error(
+              "Invalid email or password. Check your account details."
+            );
+          }
+
+          authenticatedUser = login({
+            id: 1,
+            name: "Demo Customer",
+            email: demoCustomerEmail,
+            role: "CUSTOMER",
+            active: true,
+          });
+        }
+      }
+
+      if (!authenticatedUser?.role) {
+        throw new Error(
+          "The server did not return a valid account role."
+        );
+      }
+
+      // Role-based automatic navigation.
+      const destination = getPostLoginPath(
+        authenticatedUser,
+        location.state?.from
       );
+
+      navigate(destination, { replace: true });
+
     } catch (requestError) {
       setError(
         requestError.message ||
@@ -72,51 +136,10 @@ const handleSubmit = async (event) => {
     } finally {
       setLoading(false);
     }
-
-    return;
-  }
-
-  // Frontend demo mode: allow demo staff accounts on the same page.
-  const demoStaff = authenticateDemoCrmUser(email, password);
-
-  if (demoStaff) {
-    login(demoStaff);
-
-    navigate(
-      getPostLoginPath(demoStaff.role, location.state?.from),
-      { replace: true }
-    );
-
-    return;
-  }
-
-  // Demo customer account; real production customers use the API above.
-  const DEMO_EMAIL = "test@test.com";
-  const DEMO_PASSWORD = "123456";
-
-  if (email !== DEMO_EMAIL || password !== DEMO_PASSWORD) {
-    setError("Invalid email or password. Check your account details.");
-    return;
-  }
-
-  const customer = {
-    id: 1,
-    name: "Demo Customer",
-    email: DEMO_EMAIL,
-    role: "CUSTOMER",
   };
-
-  login(customer);
-
-  navigate(
-    getPostLoginPath(customer.role, location.state?.from),
-    { replace: true }
-  );
-};
 
   return (
     <AuthLayout>
-
       <div className="auth-form-container">
 
         <div className="auth-form-header">
@@ -132,9 +155,12 @@ const handleSubmit = async (event) => {
         </div>
 
         <form onSubmit={handleSubmit}>
-          {error && <div className="crm-error-banner" role="alert">{error}</div>}
+          {error && (
+            <div className="crm-error-banner" role="alert">
+              {error}
+            </div>
+          )}
 
-          {/* Email */}
           <div className="auth-field">
             <label htmlFor="email">
               Email address
@@ -144,17 +170,16 @@ const handleSubmit = async (event) => {
               <Mail size={18} />
 
               <input
-  id="email"
-  name="email"
-  type="email"
-  placeholder="Enter your email"
-  autoComplete="email"
-  required
-/>
+                id="email"
+                name="email"
+                type="email"
+                placeholder="Enter your email"
+                autoComplete="email"
+                required
+              />
             </div>
           </div>
 
-          {/* Password */}
           <div className="auth-field">
             <div className="field-label-row">
               <label htmlFor="password">
@@ -170,13 +195,13 @@ const handleSubmit = async (event) => {
               <LockKeyhole size={18} />
 
               <input
-  id="password"
-  name="password"
-  type={showPassword ? "text" : "password"}
-  placeholder="Enter your password"
-  autoComplete="current-password"
-  required
-/>
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Enter your password"
+                autoComplete="current-password"
+                required
+              />
 
               <button
                 type="button"
@@ -199,7 +224,6 @@ const handleSubmit = async (event) => {
             </div>
           </div>
 
-          {/* Remember */}
           <div className="auth-options">
             <label className="remember-option">
               <input type="checkbox" />
@@ -207,7 +231,6 @@ const handleSubmit = async (event) => {
             </label>
           </div>
 
-          {/* Submit */}
           <button
             type="submit"
             className="auth-primary-button"
@@ -215,42 +238,23 @@ const handleSubmit = async (event) => {
           >
             {loading ? "Signing in…" : "Sign In"}
           </button>
-
         </form>
 
-        {/* Divider */}
-        {/* <div className="auth-divider">
-          <span>OR</span>
-        </div> */}
-
-        {/* Google */}
-      {/* <button className="google-button">
-  <span className="google-g-icon">G</span>
-  Continue with Google
-</button> */}
-
-        {/* Signup */}
         <p className="auth-switch">
-          Don't have an account?
-          {" "}
+          Don't have an account?{" "}
           <Link
-  to="/signup"
-  state={{
-    backgroundLocation: location.state?.backgroundLocation,
-    from: location.state?.from,
-  }}
->
-  Signup
-</Link>
+            to="/signup"
+            state={{
+              backgroundLocation:
+                location.state?.backgroundLocation,
+              from: location.state?.from,
+            }}
+          >
+            Signup
+          </Link>
         </p>
 
-        {/* <p className="auth-switch">
-          Staff member?{" "}
-          <Link to="/crm/login">Sign in to CRM</Link>
-        </p> */}
-
       </div>
-
     </AuthLayout>
   );
 }

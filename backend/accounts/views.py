@@ -15,9 +15,9 @@ from rest_framework.views import APIView
 from .models import Organization, RefreshToken
 from .permissions import (
     ACCOUNT_ROLE_ACCESS,
-    IsOrganizationAdmin,
     IsSuperAdmin,
-    IsSuperAdminOrOrganizationAdmin,
+    IsOrganizationAdminWithCRMPagePermission,
+    IsSuperAdminOrOrganizationAdminWithCRMPagePermission,
 )
 from .serializers import (
     OrganizationSerializer,
@@ -240,6 +240,7 @@ class StaffUserListCreateView(generics.ListCreateAPIView):
     """
 
     serializer_class = StaffUserSerializer
+    crm_page_permission = "userManagement"
 
     queryset = (
         User.objects
@@ -257,7 +258,7 @@ class StaffUserListCreateView(generics.ListCreateAPIView):
         else:
             permission_classes = [
                 IsAuthenticated,
-                IsSuperAdminOrOrganizationAdmin,
+                IsSuperAdminOrOrganizationAdminWithCRMPagePermission,
             ]
 
         return [
@@ -331,6 +332,7 @@ class StaffUserDetailView(generics.RetrieveUpdateAPIView):
     """
 
     serializer_class = StaffUserSerializer
+    crm_page_permission = "userManagement"
 
     # Only GET and PATCH are supported for this endpoint.
     http_method_names = [
@@ -352,7 +354,7 @@ class StaffUserDetailView(generics.RetrieveUpdateAPIView):
         if self.request.method in ("GET", "HEAD", "OPTIONS"):
             permission_classes = [
                 IsAuthenticated,
-                IsSuperAdminOrOrganizationAdmin,
+                IsSuperAdminOrOrganizationAdminWithCRMPagePermission,
             ]
 
         # Only Organization Admins may submit permission updates.
@@ -360,7 +362,7 @@ class StaffUserDetailView(generics.RetrieveUpdateAPIView):
         else:
             permission_classes = [
                 IsAuthenticated,
-                IsOrganizationAdmin,
+                IsOrganizationAdminWithCRMPagePermission,
             ]
 
         return [

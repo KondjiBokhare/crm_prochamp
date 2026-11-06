@@ -79,21 +79,62 @@ export async function saveStorefrontCart(items = []) {
   return mapCartResponse(response);
 }
 
-export async function getStorefrontWishlist() {
+
+export async function getStorefrontWishlist(authenticatedRequest) {
   const visitorId = getStorefrontVisitorId();
-  const response = await authJsonRequest(`/api/storefront/wishlist/?visitor_id=${encodeURIComponent(visitorId)}`);
-  return Array.isArray(response?.productIds) ? response.productIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0) : [];
+
+  // Authenticated users send their JWT.
+  // Guests continue using the public request.
+  const request =
+    typeof authenticatedRequest === "function"
+      ? authenticatedRequest
+      : authJsonRequest;
+
+  const response = await request(
+    `/api/storefront/wishlist/?visitor_id=${encodeURIComponent(visitorId)}`
+  );
+
+  return Array.isArray(response?.productIds)
+    ? response.productIds
+        .map(Number)
+        .filter((id) => Number.isInteger(id) && id > 0)
+    : [];
 }
 
-export async function saveStorefrontWishlist(productIds = []) {
+export async function saveStorefrontWishlist(
+  productIds = [],
+  authenticatedRequest
+) {
   const visitorId = getStorefrontVisitorId();
-  const ids = [...new Set((Array.isArray(productIds) ? productIds : []).map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 100);
-  const response = await authJsonRequest("/api/storefront/wishlist/", {
+
+  const ids = [
+    ...new Set(
+      (Array.isArray(productIds) ? productIds : [])
+        .map(Number)
+        .filter((id) => Number.isInteger(id) && id > 0)
+    ),
+  ].slice(0, 100);
+
+  const request =
+    typeof authenticatedRequest === "function"
+      ? authenticatedRequest
+      : authJsonRequest;
+
+  const response = await request("/api/storefront/wishlist/", {
     method: "PUT",
-    body: { visitor_id: visitorId, product_ids: ids },
+    body: {
+      visitor_id: visitorId,
+      product_ids: ids,
+    },
   });
-  return Array.isArray(response?.productIds) ? response.productIds.map(Number).filter((id) => Number.isInteger(id) && id > 0) : ids;
+
+  return Array.isArray(response?.productIds)
+    ? response.productIds
+        .map(Number)
+        .filter((id) => Number.isInteger(id) && id > 0)
+    : ids;
 }
+
 
 export async function getStorefrontProductReviews(productId) {
   const response = await authJsonRequest(`/api/storefront/products/${encodeURIComponent(productId)}/reviews/`);
