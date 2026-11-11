@@ -27,7 +27,12 @@ function statusLabel(value) {
 }
 
 export function mapStorefrontOrder(raw = {}) {
-  const details = raw.storefront_data && typeof raw.storefront_data === "object" ? raw.storefront_data : {};
+  const details =
+  raw.crm_data && typeof raw.crm_data === "object"
+    ? raw.crm_data
+    : raw.storefront_data && typeof raw.storefront_data === "object"
+      ? raw.storefront_data
+      : {};
   const amount = Number(raw.amount ?? details.total ?? 0);
   return {
     id: String(raw.order_number || raw.id || ""),

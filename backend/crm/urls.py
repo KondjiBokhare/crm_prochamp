@@ -47,6 +47,7 @@ urlpatterns = [
     path("product-reviews/", views.CRMProductReviewListView.as_view(), name="product-review-list"),
     path("product-reviews/<int:pk>/status/", views.CRMProductReviewStatusView.as_view(), name="product-review-status"),
 
+
     # Support, lead management, marketing, communications, and notifications.
     path("support-tickets/", views.SupportTicketListCreateView.as_view(), name="support-ticket-list-create"),
     path("support-tickets/<str:ticket_id>/", views.SupportTicketDetailView.as_view(), name="support-ticket-detail"),
@@ -97,6 +98,11 @@ storefront_account_urlpatterns = [
 
     path("profile-image/", views.StorefrontCustomerProfileImageView.as_view(), 
     name="storefront-customer-profile-image"),
+    path(
+    "reviews/",
+    views.StorefrontCustomerReviewListView.as_view(),
+    name="storefront-customer-reviews",
+),
     path(
         "notifications/",
         views.StorefrontCustomerNotificationListView.as_view(),

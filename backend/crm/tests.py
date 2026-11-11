@@ -7,7 +7,17 @@ from rest_framework.test import APITestCase
 from accounts.token_service import create_access_token
 
 from accounts.models import User, Organization
-from crm.models import AuditLog, Category, Customer, Lead, Notification, Product, StockMovement
+from crm.models import (
+    AuditLog,
+    Category,
+    Customer,
+    Lead,
+    Notification,
+    Product,
+    StockMovement,
+    Order,
+    ProductReview,
+)
 
 
 class AuditLogAPITests(APITestCase):
@@ -680,3 +690,338 @@ class CRMIndividualPermissionAndNotificationTests(APITestCase):
                     response.status_code,
                     status.HTTP_403_FORBIDDEN,
                 )
+
+
+class ProductReviewAPITests(APITestCase):
+    """Order-linked product reviews and customer review history."""
+
+    def setUp(self):
+        self.organization = Organization.objects.create(
+            name="Review Test Organization"
+        )
+
+        # The public storefront review API uses this configured organization.
+        self.settings_override = override_settings(
+            STOREFRONT_ORGANIZATION_ID=self.organization.pk
+        )
+        self.settings_override.enable()
+
+        self.category = Category.objects.create(
+            organization=self.organization,
+            name="Review Test Accessories",
+        )
+
+        self.product = Product.objects.create(
+            organization=self.organization,
+            category=self.category,
+            name="Review Test Product",
+            sku="REVIEW-TEST-001",
+            brand="TechGear",
+            price="1000.00",
+            stock=10,
+            status=Product.ProductStatus.ACTIVE,
+        )
+
+        self.customer_user = User.objects.create_user(
+            email="review-customer@test.com",
+            password="Test@12345",
+            role="CUSTOMER",
+            organization=self.organization,
+            is_active=True,
+        )
+
+        self.other_customer_user = User.objects.create_user(
+            email="other-review-customer@test.com",
+            password="Test@12345",
+            role="CUSTOMER",
+            organization=self.organization,
+            is_active=True,
+        )
+
+        self.customer = Customer.objects.create(
+            organization=self.organization,
+            first_name="Review",
+            last_name="Customer",
+            email=self.customer_user.email,
+            phone="9876543210",
+            lifecycle_stage="LEAD",
+        )
+
+        self.other_customer = Customer.objects.create(
+            organization=self.organization,
+            first_name="Other",
+            last_name="Customer",
+            email=self.other_customer_user.email,
+            phone="9876543211",
+            lifecycle_stage="LEAD",
+        )
+
+        self.first_order = self.make_order(
+            self.customer_user,
+            self.customer,
+            "TG-REVIEW-001",
+            Order.OrderStatus.DELIVERED,
+        )
+
+        self.second_order = self.make_order(
+            self.customer_user,
+            self.customer,
+            "TG-REVIEW-002",
+            Order.OrderStatus.SHIPPED,
+        )
+
+        self.other_order = self.make_order(
+            self.other_customer_user,
+            self.other_customer,
+            "TG-REVIEW-003",
+            Order.OrderStatus.DELIVERED,
+        )
+
+        self.pending_order = self.make_order(
+            self.customer_user,
+            self.customer,
+            "TG-REVIEW-004",
+            Order.OrderStatus.PENDING,
+        )
+
+        self.review_url = (
+            f"/api/storefront/products/{self.product.pk}/reviews/"
+        )
+
+        self.my_reviews_url = "/api/storefront/account/reviews/"
+
+    def tearDown(self):
+        self.settings_override.disable()
+        super().tearDown()
+
+    def make_order(self, user, customer, order_number, order_status):
+        return Order.objects.create(
+            organization=self.organization,
+            customer=customer,
+            source_user=user,
+            order_number=order_number,
+            amount="1000.00",
+            status=order_status,
+            order_date=timezone.now(),
+            crm_data={
+                "items": [
+                    {
+                        "id": self.product.pk,
+                        "name": self.product.name,
+                        "price": 1000,
+                        "quantity": 1,
+                    }
+                ]
+            },
+        )
+
+    def authenticate(self, user):
+        token = create_access_token(user)
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+
+    def review_payload(self, order_number):
+        return {
+            "order_number": order_number,
+            "reviewer_name": "Test Customer",
+            "rating": 5,
+            "title": "Excellent product",
+            "comment": (
+                "The product works very well and "
+                "the overall quality is excellent."
+            ),
+        }
+
+    @staticmethod
+    def response_items(response):
+        if isinstance(response.data, dict):
+            return response.data.get("results", [])
+        return response.data
+
+    def test_same_product_can_be_reviewed_for_two_different_orders(self):
+        self.authenticate(self.customer_user)
+
+        first_response = self.client.post(
+            self.review_url,
+            self.review_payload(self.first_order.order_number),
+            format="json",
+        )
+
+        self.assertEqual(
+            first_response.status_code,
+            status.HTTP_201_CREATED,
+            first_response.data,
+        )
+
+        second_response = self.client.post(
+            self.review_url,
+            self.review_payload(self.second_order.order_number),
+            format="json",
+        )
+
+        self.assertEqual(
+            second_response.status_code,
+            status.HTTP_201_CREATED,
+            second_response.data,
+        )
+
+        reviews = ProductReview.objects.filter(
+            customer_user=self.customer_user,
+            product=self.product,
+        )
+
+        self.assertEqual(reviews.count(), 2)
+
+        self.assertSetEqual(
+            set(reviews.values_list("order_id", flat=True)),
+            {self.first_order.pk, self.second_order.pk},
+        )
+
+        self.assertTrue(
+            all(review.verified_purchase for review in reviews)
+        )
+
+    def test_duplicate_review_for_same_order_is_rejected(self):
+        self.authenticate(self.customer_user)
+
+        first_response = self.client.post(
+            self.review_url,
+            self.review_payload(self.first_order.order_number),
+            format="json",
+        )
+
+        self.assertEqual(
+            first_response.status_code,
+            status.HTTP_201_CREATED,
+            first_response.data,
+        )
+
+        duplicate_response = self.client.post(
+            self.review_url,
+            self.review_payload(self.first_order.order_number),
+            format="json",
+        )
+
+        self.assertEqual(
+            duplicate_response.status_code,
+            status.HTTP_409_CONFLICT,
+        )
+
+        self.assertEqual(
+            ProductReview.objects.filter(
+                order=self.first_order,
+                product=self.product,
+            ).count(),
+            1,
+        )
+
+    def test_customer_cannot_review_another_customers_order(self):
+        self.authenticate(self.customer_user)
+
+        response = self.client.post(
+            self.review_url,
+            self.review_payload(self.other_order.order_number),
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertFalse(
+            ProductReview.objects.filter(
+                order=self.other_order,
+                product=self.product,
+            ).exists()
+        )
+
+    def test_review_is_rejected_before_order_shipment(self):
+        self.authenticate(self.customer_user)
+
+        response = self.client.post(
+            self.review_url,
+            self.review_payload(self.pending_order.order_number),
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertFalse(
+            ProductReview.objects.filter(
+                order=self.pending_order,
+                product=self.product,
+            ).exists()
+        )
+
+    def test_my_reviews_returns_only_logged_in_customers_reviews(self):
+        own_review = ProductReview.objects.create(
+            organization=self.organization,
+            product=self.product,
+            customer_user=self.customer_user,
+            order=self.first_order,
+            visitor_id=f"customer-{self.customer_user.pk}",
+            reviewer_name="Review Customer",
+            rating=5,
+            title="My own review",
+            comment="This product works exactly as expected.",
+            status=ProductReview.ReviewStatus.PENDING,
+            verified_purchase=True,
+        )
+
+        ProductReview.objects.create(
+            organization=self.organization,
+            product=self.product,
+            customer_user=self.other_customer_user,
+            order=self.other_order,
+            visitor_id=f"customer-{self.other_customer_user.pk}",
+            reviewer_name="Other Customer",
+            rating=4,
+            title="Another customer review",
+            comment="This product has good overall quality.",
+            status=ProductReview.ReviewStatus.APPROVED,
+            verified_purchase=True,
+        )
+
+        self.authenticate(self.customer_user)
+
+        response = self.client.get(self.my_reviews_url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+            response.data,
+        )
+
+        rows = self.response_items(response)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], own_review.pk)
+        self.assertEqual(
+            rows[0]["order_number"],
+            self.first_order.order_number,
+        )
+
+    def test_review_submission_requires_customer_authentication(self):
+        response = self.client.post(
+            self.review_url,
+            self.review_payload(self.first_order.order_number),
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+    def test_my_reviews_requires_customer_authentication(self):
+        response = self.client.get(self.my_reviews_url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )

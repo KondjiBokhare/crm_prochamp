@@ -15264,3 +15264,395 @@ html[data-theme="dark"] .store-info-page .store-info-back:hover {
     animation: none;
   }
 }
+
+
+/* =========================================================
+   TECHGEAR — CUSTOMER ORDER REVIEW FORM
+   Scoped to OrderItemReview component
+========================================================= */
+
+/* Main review container */
+.order-review-box {
+  width: 100%;
+  margin-top: 14px;
+  min-width: 0;
+  font-family: inherit;
+  color: #26332b;
+}
+
+/* Write a review toggle */
+.order-review-box .order-review-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 9px 15px;
+
+  border: 1px solid #d7dec7;
+  border-radius: 9px;
+  background: #f8faef;
+
+  color: #465b35;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.order-review-box .order-review-toggle:hover {
+  background: #edf3db;
+  border-color: #b9c69c;
+  color: #35492a;
+}
+
+.order-review-box .order-review-toggle:active {
+  transform: translateY(1px);
+}
+
+.order-review-box .order-review-toggle svg:last-child {
+  transition: transform 0.2s ease;
+}
+
+.order-review-box .order-review-toggle svg:last-child.is-open {
+  transform: rotate(180deg);
+}
+
+.order-review-box .order-review-toggle:focus-visible {
+  outline: 3px solid rgba(116, 139, 75, 0.2);
+  outline-offset: 3px;
+}
+
+/* Review panel */
+.order-review-box .order-review-panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-top: 12px;
+  padding: 18px;
+
+  box-sizing: border-box;
+
+  background: #ffffff;
+  border: 1px solid #e0e6d5;
+  border-radius: 13px;
+
+  box-shadow: 0 5px 18px rgba(36, 49, 31, 0.045);
+  animation: orderReviewAppear 0.22s ease both;
+}
+
+/* Panel animation */
+@keyframes orderReviewAppear {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Panel heading */
+.order-review-box .order-review-panel-heading {
+  margin-bottom: 17px;
+}
+
+.order-review-box .order-review-panel-heading h5 {
+  margin: 0 0 6px;
+  color: #253427;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.order-review-box .order-review-panel-heading p {
+  margin: 0;
+  color: #7b8575;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* Review form layout */
+.order-review-box .storefront-review-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+
+  width: 100%;
+  margin: 0;
+  padding: 0;
+
+  box-sizing: border-box;
+}
+
+/* Form labels */
+.order-review-box .storefront-review-form > label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+
+  color: #354235;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* Label text */
+.order-review-box .storefront-review-form > label > span {
+  display: block;
+  margin: 0;
+  color: #465343;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* Full-width fields */
+.order-review-box .storefront-review-form .storefront-review-form-wide {
+  grid-column: 1 / -1;
+}
+
+/* Input, select and textarea common styling */
+.order-review-box .storefront-review-form input,
+.order-review-box .storefront-review-form select,
+.order-review-box .storefront-review-form textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 43px;
+
+  margin: 0;
+  padding: 11px 12px;
+
+  box-sizing: border-box;
+
+  border: 1px solid #dce3d6;
+  border-radius: 8px;
+
+  background-color: #ffffff;
+  color: #28362c;
+
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 1.5;
+
+  outline: none;
+  box-shadow: none;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background-color 0.2s ease;
+}
+
+/* Placeholder */
+.order-review-box .storefront-review-form input::placeholder,
+.order-review-box .storefront-review-form textarea::placeholder {
+  color: #a1a99c;
+  opacity: 1;
+}
+
+/* Focus state */
+.order-review-box .storefront-review-form input:focus,
+.order-review-box .storefront-review-form select:focus,
+.order-review-box .storefront-review-form textarea:focus {
+  border-color: #829b5c;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(130, 155, 92, 0.12);
+}
+
+/* Rating dropdown */
+.order-review-box .storefront-review-form select {
+  cursor: pointer;
+  appearance: auto;
+}
+
+/* Review textarea */
+.order-review-box .storefront-review-form textarea {
+  min-height: 105px;
+  resize: vertical;
+}
+
+/* Submit button */
+.order-review-box .storefront-review-form > button[type="submit"] {
+  grid-column: 1 / -1;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+
+  width: fit-content;
+  min-width: 145px;
+  min-height: 43px;
+
+  margin-top: 2px;
+  padding: 11px 19px;
+
+  border: 1px solid #657f45;
+  border-radius: 8px;
+
+  background: #718b4e;
+  color: #ffffff;
+
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+
+  cursor: pointer;
+
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.order-review-box .storefront-review-form > button[type="submit"]:hover:not(:disabled) {
+  background: #5d753d;
+  border-color: #5d753d;
+  box-shadow: 0 4px 12px rgba(93, 117, 61, 0.18);
+  transform: translateY(-1px);
+}
+
+.order-review-box .storefront-review-form > button[type="submit"]:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.order-review-box .storefront-review-form > button[type="submit"]:focus-visible {
+  outline: 3px solid rgba(113, 139, 78, 0.2);
+  outline-offset: 3px;
+}
+
+/* Disabled submit button */
+.order-review-box .storefront-review-form > button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Moderation note */
+.order-review-box .order-review-moderation-note {
+  margin: 12px 0 0;
+  color: #899184;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* Success and error notices */
+.order-review-box .storefront-review-notice {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+
+  border: 1px solid transparent;
+  border-radius: 8px;
+
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.order-review-box .storefront-review-notice.success {
+  background: #f0f7e9;
+  border-color: #d4e6c2;
+  color: #456b35;
+}
+
+.order-review-box .storefront-review-notice.error {
+  background: #fff2ef;
+  border-color: #f2d2ca;
+  color: #a54838;
+}
+
+/* Review locked message */
+.order-review-box .order-review-locked {
+  margin: 10px 0 0;
+  color: #858d80;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* Submitted review message */
+.order-review-box .order-review-submitted {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+
+  box-sizing: border-box;
+
+  border: 1px solid #d5e6c5;
+  border-radius: 9px;
+
+  background: #f2f8eb;
+  color: #54723e;
+}
+
+.order-review-box .order-review-submitted > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.order-review-box .order-review-submitted span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.order-review-box .order-review-submitted strong {
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.order-review-box .order-review-submitted small {
+  color: #788b68;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* Responsive layout */
+@media (max-width: 640px) {
+  .order-review-box .order-review-panel {
+    padding: 14px;
+  }
+
+  .order-review-box .storefront-review-form {
+    grid-template-columns: 1fr;
+    gap: 13px;
+  }
+
+  .order-review-box .storefront-review-form .storefront-review-form-wide {
+    grid-column: 1;
+  }
+
+  .order-review-box .storefront-review-form > button[type="submit"] {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-review-box .order-review-panel {
+    animation: none;
+  }
+
+  .order-review-box *,
+  .order-review-box *::before,
+  .order-review-box *::after {
+    transition-duration: 0.01ms !important;
+  }
+}

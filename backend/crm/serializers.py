@@ -1220,57 +1220,199 @@ class CrmWishlistSyncSerializer(serializers.Serializer):
 
 
 class CrmProductReviewCreateSerializer(serializers.Serializer):
-    visitor_id = serializers.CharField(max_length=100)
-    reviewer_name = serializers.CharField(max_length=100, trim_whitespace=True)
-    rating = serializers.IntegerField(min_value=1, max_value=5)
-    title = serializers.CharField(max_length=120, trim_whitespace=True)
-    comment = serializers.CharField(max_length=2000, trim_whitespace=True)
+    """
+    Validates a review submitted by an authenticated customer.
+    Order ownership and purchase verification are handled in the API view.
+    """
 
-    def validate_visitor_id(self, value):
-        return _validate_phase25_visitor_id(value)
+    order_number = serializers.CharField(
+        max_length=100,
+        trim_whitespace=True,
+    )
+
+    reviewer_name = serializers.CharField(
+        max_length=100,
+        trim_whitespace=True,
+    )
+
+    rating = serializers.IntegerField(
+        min_value=1,
+        max_value=5,
+    )
+
+    title = serializers.CharField(
+        max_length=120,
+        trim_whitespace=True,
+    )
+
+    comment = serializers.CharField(
+        max_length=2000,
+        trim_whitespace=True,
+    )
+
+    def validate_order_number(self, value):
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "A valid order number is required."
+            )
+
+        return value
 
     def validate_reviewer_name(self, value):
         value = " ".join(value.split())
+
         if len(value) < 2:
-            raise serializers.ValidationError("Name must contain at least 2 characters.")
+            raise serializers.ValidationError(
+                "Name must contain at least 2 characters."
+            )
+
         return value
 
     def validate_title(self, value):
         value = " ".join(value.split())
+
         if len(value) < 3:
-            raise serializers.ValidationError("Review title must contain at least 3 characters.")
+            raise serializers.ValidationError(
+                "Review title must contain at least 3 characters."
+            )
+
         return value
 
     def validate_comment(self, value):
         value = " ".join(value.split())
+
         if len(value) < 10:
-            raise serializers.ValidationError("Review comment must contain at least 10 characters.")
+            raise serializers.ValidationError(
+                "Review comment must contain at least 10 characters."
+            )
+
         return value
 
 
 class CrmProductReviewSerializer(serializers.ModelSerializer):
-    reviewerName = serializers.CharField(source="reviewer_name", read_only=True)
-    verifiedPurchase = serializers.BooleanField(source="verified_purchase", read_only=True)
-    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+    reviewerName = serializers.CharField(
+        source="reviewer_name",
+        read_only=True,
+    )
+
+    verifiedPurchase = serializers.BooleanField(
+        source="verified_purchase",
+        read_only=True,
+    )
+
+    createdAt = serializers.DateTimeField(
+        source="created_at",
+        read_only=True,
+    )
 
     class Meta:
         model = ProductReview
-        fields = ["id", "reviewerName", "rating", "title", "comment", "verifiedPurchase", "createdAt"]
+        fields = [
+            "id",
+            "reviewerName",
+            "rating",
+            "title",
+            "comment",
+            "verifiedPurchase",
+            "createdAt",
+        ]
         read_only_fields = fields
 
 
-class CrmProductReviewSerializer(serializers.ModelSerializer):
+class CRMProductReviewSerializer(serializers.ModelSerializer):
     product_id = serializers.IntegerField(read_only=True)
-    product_name = serializers.CharField(source="product.name", read_only=True)
-    reviewerName = serializers.CharField(source="reviewer_name", read_only=True)
-    verifiedPurchase = serializers.BooleanField(source="verified_purchase", read_only=True)
-    createdAt = serializers.DateTimeField(source="created_at", read_only=True)
+
+    product_name = serializers.CharField(
+        source="product.name",
+        read_only=True,
+    )
+
+    reviewerName = serializers.CharField(
+        source="reviewer_name",
+        read_only=True,
+    )
+
+    verifiedPurchase = serializers.BooleanField(
+        source="verified_purchase",
+        read_only=True,
+    )
+
+    createdAt = serializers.DateTimeField(
+        source="created_at",
+        read_only=True,
+    )
+
+    order_number = serializers.CharField(
+        source="order.order_number",
+        read_only=True,
+        allow_null=True,
+    )
 
     class Meta:
         model = ProductReview
-        fields = ["id", "product_id", "product_name", "reviewerName", "rating", "title", "comment", "status", "verifiedPurchase", "createdAt"]
+        fields = [
+            "id",
+            "product_id",
+            "product_name",
+            "reviewerName",
+            "rating",
+            "title",
+            "comment",
+            "status",
+            "verifiedPurchase",
+            "order_number",
+            "createdAt",
+        ]
         read_only_fields = fields
 
+
+class StorefrontCustomerReviewSerializer(serializers.ModelSerializer):
+    product_id = serializers.IntegerField(read_only=True)
+
+    product_name = serializers.CharField(
+        source="product.name",
+        read_only=True,
+    )
+
+    reviewerName = serializers.CharField(
+        source="reviewer_name",
+        read_only=True,
+    )
+
+    verifiedPurchase = serializers.BooleanField(
+        source="verified_purchase",
+        read_only=True,
+    )
+
+    order_number = serializers.CharField(
+        source="order.order_number",
+        read_only=True,
+        allow_null=True,
+    )
+
+    createdAt = serializers.DateTimeField(
+        source="created_at",
+        read_only=True,
+    )
+
+    class Meta:
+        model = ProductReview
+        fields = [
+            "id",
+            "product_id",
+            "product_name",
+            "reviewerName",
+            "rating",
+            "title",
+            "comment",
+            "status",
+            "verifiedPurchase",
+            "order_number",
+            "createdAt",
+        ]
+        read_only_fields = fields
 
 # ---------------------------------------------------------------------------
 # Phase 26 — inventory movement and discount coupon serializers

@@ -1182,6 +1182,7 @@ class CrmWishlistItem(models.Model):
         return f"Wishlist {self.visitor_id[:12]} · {self.product.name}"
 
 
+
 class ProductReview(models.Model):
     class ReviewStatus(models.TextChoices):
         PENDING = "PENDING", "Pending moderation"
@@ -1189,34 +1190,95 @@ class ProductReview(models.Model):
         REJECTED = "REJECTED", "Rejected"
 
     organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="product_reviews"
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="product_reviews",
     )
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="customer_reviews")
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="customer_reviews",
+    )
+
+    # Retained for compatibility with existing historical reviews.
     visitor_id = models.CharField(max_length=100)
+
+    # Customer account associated with the review.
+    customer_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="storefront_product_reviews",
+    )
+
+    # The specific order for which the review was submitted.
+    order = models.ForeignKey(
+        "crm.Order",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="product_reviews",
+    )
+
     reviewer_name = models.CharField(max_length=100)
     rating = models.PositiveSmallIntegerField()
     title = models.CharField(max_length=120)
     comment = models.TextField(max_length=2000)
-    status = models.CharField(max_length=12, choices=ReviewStatus.choices, default=ReviewStatus.PENDING)
+
+    status = models.CharField(
+        max_length=12,
+        choices=ReviewStatus.choices,
+        default=ReviewStatus.PENDING,
+    )
+
     verified_purchase = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-created_at"]
+
         constraints = [
+            # Preserve duplicate protection for historical reviews
+            # that do not have an associated order.
             models.UniqueConstraint(
                 fields=["organization", "product", "visitor_id"],
-                name="crm_review_org_prod_visit_uniq",
-            )
+                condition=models.Q(order__isnull=True),
+                name="crm_review_org_prod_vis_uniq",
+            ),
+
+            # One review per product for each individual order.
+            models.UniqueConstraint(
+                fields=["organization", "order", "product"],
+                condition=models.Q(order__isnull=False),
+                name="crm_review_org_order_prod_uniq",
+            ),
         ]
+
         indexes = [
-            models.Index(fields=["organization", "status", "created_at"], name="crm_review_org_status_idx"),
-            models.Index(fields=["product", "status"], name="crm_review_product_status_idx"),
+            models.Index(
+                fields=["organization", "status", "created_at"],
+                name="crm_review_org_status_idx",
+            ),
+            models.Index(
+                fields=["product", "status"],
+                name="crm_review_product_status_idx",
+            ),
+            models.Index(
+                fields=["customer_user", "created_at"],
+                name="crm_review_customer_date_idx",
+            ),
         ]
 
     def __str__(self):
-        return f"{self.product.name} · {self.rating}/5 · {self.status}"
+        return (
+            f"{self.product.name} · "
+            f"{self.rating}/5 · {self.status}"
+        )
+
 
 
 class StockMovement(models.Model):

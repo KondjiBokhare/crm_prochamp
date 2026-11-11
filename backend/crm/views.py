@@ -2425,7 +2425,9 @@ from .serializers import (
     CrmWishlistSyncSerializer as _CrmWishlistSyncSerializer,
     CrmProductReviewCreateSerializer as _CrmProductReviewCreateSerializer,
     CrmProductReviewSerializer as _CrmProductReviewSerializer,
-    CrmProductReviewSerializer as _CRMProductReviewSerializer,
+    CRMProductReviewSerializer as _CRMProductReviewSerializer,
+    StorefrontCustomerReviewSerializer as _StorefrontCustomerReviewSerializer,
+
 )
 from django.db.models import Avg as _Phase25Avg, Count as _Phase25Count
 
@@ -2621,6 +2623,18 @@ def _phase25_recalculate_product_rating(product):
     product.reviews = int(summary["count"] or 0)
     product.save(update_fields=["rating", "reviews", "updated_at"])
 
+class _IsActiveStorefrontCustomer(BasePermission):
+    """Allow only active authenticated storefront customers."""
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        return bool(
+            user
+            and user.is_authenticated
+            and user.is_active
+            and getattr(user, "role", None) == "CUSTOMER"
+        )
 
 class CrmProductReviewsView(APIView):
     permission_classes = [_AllowAny]
@@ -2661,6 +2675,226 @@ class CrmProductReviewsView(APIView):
         return Response({"id": review.id, "status": review.status, "detail": "Review submitted and awaiting moderation."}, status=status.HTTP_201_CREATED)
 
 
+
+class CrmProductReviewsView(APIView):
+    """
+    Publicly displays approved product reviews.
+    Review submissions require an authenticated customer and a valid order.
+    """
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [_IsActiveStorefrontCustomer()]
+
+        return [_AllowAny()]
+
+    def get(self, request, product_id):
+        organization_id = _phase25_Crm_org(request)
+
+        if not organization_id:
+            return Response(
+                {
+                    "items": [],
+                    "summary": {"rating": 0, "count": 0},
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        product = get_object_or_404(
+            _Product.objects.select_related("category"),
+            pk=product_id,
+            organization_id=organization_id,
+            status="Active",
+            category__is_active=True,
+        )
+
+        queryset = _ProductReview.objects.filter(
+            product=product,
+            status=_ProductReview.ReviewStatus.APPROVED,
+        )
+
+        summary = queryset.aggregate(
+            average=_Phase25Avg("rating"),
+            count=_Phase25Count("id"),
+        )
+
+        return Response({
+            "items": _CrmProductReviewSerializer(
+                queryset[:100],
+                many=True,
+            ).data,
+            "summary": {
+                "rating": round(float(summary["average"] or 0), 2),
+                "count": int(summary["count"] or 0),
+            },
+        })
+
+    @transaction.atomic
+    def post(self, request, product_id):
+        from django.db import IntegrityError
+
+        organization_id = _phase25_Crm_org(request)
+
+        if not organization_id:
+            return Response(
+                {"detail": "The storefront organization is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        product = get_object_or_404(
+            _Product.objects.select_related("category"),
+            pk=product_id,
+            organization_id=organization_id,
+            status="Active",
+            category__is_active=True,
+        )
+
+        serializer = _CrmProductReviewCreateSerializer(
+            data=request.data
+        )
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+        user = request.user
+
+        # Find an order belonging to the signed-in customer.
+        order = (
+            Order.objects.select_for_update()
+            .filter(
+                organization_id=organization_id,
+                order_number=data["order_number"],
+            )
+            .filter(
+                Q(source_user=user)
+                | Q(customer__email__iexact=user.email)
+            )
+            .first()
+        )
+
+        if order is None:
+            raise PermissionDenied(
+                "This order does not belong to your customer account."
+            )
+
+        # Reviews become available only after shipment.
+        if order.status not in {
+            Order.OrderStatus.SHIPPED,
+            Order.OrderStatus.DELIVERED,
+        }:
+            raise ValidationError({
+                "order_number": (
+                    "You can review a product after its order has shipped."
+                )
+            })
+
+        # Confirm that the requested product belongs to this order.
+        order_details = (
+            order.crm_data
+            if isinstance(order.crm_data, dict)
+            else {}
+        )
+
+        ordered_items = order_details.get("items", [])
+
+        product_exists_in_order = any(
+            isinstance(item, dict)
+            and str(
+                item.get("id")
+                or item.get("product_id")
+                or item.get("productId")
+                or ""
+            ) == str(product.pk)
+            for item in ordered_items
+        )
+
+        if not product_exists_in_order:
+            raise ValidationError({
+                "product_id": (
+                    "This product was not found in the selected order."
+                )
+            })
+
+        # The unique order + product constraint prevents duplicates.
+        existing_review = _ProductReview.objects.filter(
+            organization_id=organization_id,
+            order=order,
+            product=product,
+        ).exists()
+
+        if existing_review:
+            return Response(
+                {
+                    "detail": (
+                        "You have already submitted a review "
+                        "for this product in this order."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            review = _ProductReview.objects.create(
+                organization_id=organization_id,
+                product=product,
+                order=order,
+                customer_user=user,
+                visitor_id=f"customer-{user.pk}",
+                reviewer_name=data["reviewer_name"],
+                rating=data["rating"],
+                title=data["title"],
+                comment=data["comment"],
+                status=_ProductReview.ReviewStatus.PENDING,
+                verified_purchase=True,
+            )
+        except IntegrityError:
+            return Response(
+                {
+                    "detail": (
+                        "A review for this product and order "
+                        "has already been submitted."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(
+            {
+                "id": review.id,
+                "status": review.status,
+                "verified_purchase": review.verified_purchase,
+                "order_number": order.order_number,
+                "detail": "Your review has been submitted for moderation.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class StorefrontCustomerReviewListView(generics.ListAPIView):
+    """
+    Returns only reviews belonging to the currently signed-in customer.
+    Includes pending, approved and rejected reviews.
+    """
+
+    permission_classes = [_IsActiveStorefrontCustomer]
+    serializer_class = _StorefrontCustomerReviewSerializer
+
+    def get_queryset(self):
+        organization_id = _phase25_Crm_org(self.request)
+
+        if not organization_id:
+            return _ProductReview.objects.none()
+
+        return (
+            _ProductReview.objects.filter(
+                organization_id=organization_id,
+                customer_user=self.request.user,
+            )
+            .select_related("product", "order")
+            .order_by("-created_at")
+        )
+
+
+
 class CRMProductReviewListView(generics.ListAPIView):
     serializer_class = _CRMProductReviewSerializer
     crm_page_permission = "productReviews"
@@ -2669,7 +2903,7 @@ class CRMProductReviewListView(generics.ListAPIView):
     def get_queryset(self):
 
         organization = _require_organization(self.request)
-        queryset = _ProductReview.objects.filter(organization=organization).select_related("product")
+        queryset = _ProductReview.objects.filter(organization=organization).select_related("product", "order")
         review_status = self.request.query_params.get("status", "PENDING").upper()
         if review_status != "ALL":
             allowed = {choice[0] for choice in _ProductReview.ReviewStatus.choices}

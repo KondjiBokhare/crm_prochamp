@@ -147,18 +147,58 @@ export async function getStorefrontProductReviews(productId) {
   };
 }
 
-export async function submitStorefrontProductReview(productId, input) {
-  return authJsonRequest(`/api/storefront/products/${encodeURIComponent(productId)}/reviews/`, {
-    method: "POST",
-    body: {
-      visitor_id: getStorefrontVisitorId(),
-      reviewer_name: String(input?.reviewerName || "").trim(),
-      rating: Math.min(5, Math.max(1, Number(input?.rating) || 5)),
-      title: String(input?.title || "").trim(),
-      comment: String(input?.comment || "").trim(),
-    },
-  });
+
+export async function submitStorefrontProductReview(
+  productId,
+  input,
+  orderNumber,
+  authenticatedRequest
+) {
+  if (typeof authenticatedRequest !== "function") {
+    throw new Error("Please sign in to submit your product review.");
+  }
+
+  const orderKey = String(orderNumber || "").trim();
+
+  if (!orderKey) {
+    throw new Error("A valid order number is required.");
+  }
+
+  return authenticatedRequest(
+    `/api/storefront/products/${encodeURIComponent(productId)}/reviews/`,
+    {
+      method: "POST",
+      body: {
+        order_number: orderKey,
+        reviewer_name: String(input?.reviewerName || "").trim(),
+        rating: Math.min(5, Math.max(1, Number(input?.rating) || 5)),
+        title: String(input?.title || "").trim(),
+        comment: String(input?.comment || "").trim(),
+      },
+    }
+  );
 }
+
+/**
+ * Fetch reviews belonging only to the authenticated customer.
+ */
+export async function getStorefrontCustomerReviews(authenticatedRequest) {
+  if (typeof authenticatedRequest !== "function") {
+    throw new Error("Please sign in to view your reviews.");
+  }
+
+  const response = await authenticatedRequest(
+    "/api/storefront/account/reviews/",
+    { method: "GET" }
+  );
+
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.results)) return response.results;
+  if (Array.isArray(response?.items)) return response.items;
+
+  return [];
+}
+
 
 export async function getCrmProductReviews(authenticatedRequest, { status = "PENDING", search = "" } = {}) {
   if (typeof authenticatedRequest !== "function") throw new Error("Sign in with a Django staff account to moderate product reviews.");
