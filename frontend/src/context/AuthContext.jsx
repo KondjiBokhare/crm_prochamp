@@ -234,21 +234,23 @@ try {
     }
   }, []);
 
-  const registerCustomerWithBackend = useCallback(async ({ firstName, lastName, email, password }) => {
+  const registerCustomerWithBackend = useCallback(async ({ firstName, lastName, email, password, turnstileToken }) => {
     if (!isApiAuthEnabled || !isStorefrontAuthEnabled) {
       throw new Error("Storefront API registration is disabled. Set VITE_STOREFRONT_AUTH_MODE=api and VITE_AUTH_MODE=api, then restart Vite.");
     }
+    // The account starts inactive until the emailed verification link is opened,
+    // so there is nothing to log in with yet.
     await authJsonRequest("/api/auth/register/", {
-  method: "POST",
-  body: {
-    first_name: String(firstName || "").trim(),
-    last_name: String(lastName || "").trim(),
-    email: String(email || "").trim().toLowerCase(),
-    password,
-  },
-});
-    return loginWithCustomerBackend(email, password);
-  }, [loginWithCustomerBackend]);
+      method: "POST",
+      body: {
+        first_name: String(firstName || "").trim(),
+        last_name: String(lastName || "").trim(),
+        email: String(email || "").trim().toLowerCase(),
+        password,
+        turnstile_token: turnstileToken,
+      },
+    });
+  }, []);
 
   const refreshCurrentUser = useCallback(async () => {
     if (!isApiAuthEnabled) return user;

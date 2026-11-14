@@ -7,11 +7,12 @@ import {
   EyeOff,
 
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { useAuth } from "../../context/AuthContext";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import AuthLayout from "../../components/auth/AuthLayout";
+import TurnstileWidget from "../../components/auth/TurnstileWidget";
 
 function Signup() {
   const navigate = useNavigate();
@@ -21,6 +22,9 @@ function Signup() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
+
+  const handleTurnstileToken = useCallback((token) => setTurnstileToken(token), []);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -40,10 +44,14 @@ function Signup() {
       setError("Customer registration API is not enabled. Set VITE_STOREFRONT_AUTH_MODE=api in frontend/.env.local and restart Vite.");
       return;
     }
+    if (!turnstileToken) {
+      setError("Please complete the verification challenge.");
+      return;
+    }
     setLoading(true);
     try {
-      await registerCustomerWithBackend({ firstName, lastName, email, password });
-      navigate("/profile", { replace: true });
+      await registerCustomerWithBackend({ firstName, lastName, email, password, turnstileToken });
+      navigate("/check-email", { replace: true, state: { email } });
     } catch (requestError) {
       setError(requestError.message || "Could not create your account.");
     } finally {
@@ -217,11 +225,14 @@ function Signup() {
             </span>
           </label>
 
+          {/* Bot check */}
+          <TurnstileWidget onToken={handleTurnstileToken} />
+
           {/* Submit */}
           <button
             type="submit"
             className="auth-primary-button"
-            disabled={loading}
+            disabled={loading || !turnstileToken}
           >
             {loading ? "Creating account…" : "Create Account"}
           </button>

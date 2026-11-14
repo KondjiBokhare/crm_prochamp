@@ -111,6 +111,20 @@ export async function getDjangoCurrentUser(accessToken) {
   return authJsonRequest("/api/auth/me/", { accessToken });
 }
 
+export function verifyEmail(token) {
+  return authJsonRequest("/api/auth/verify-email/", {
+    method: "POST",
+    body: { token },
+  });
+}
+
+export function resendVerificationEmail(email) {
+  return authJsonRequest("/api/auth/resend-verification/", {
+    method: "POST",
+    body: { email: String(email || "").trim().toLowerCase() },
+  });
+}
+
 export function refreshDjangoToken(refreshToken) {
   if (refreshInFlight) return refreshInFlight;
 

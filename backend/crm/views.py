@@ -891,6 +891,8 @@ from django.conf import settings as django_settings
 from django.db.models import Q as DjangoQ
 from django.shortcuts import get_object_or_404
 from rest_framework.permissions import AllowAny
+from django.core.cache import cache
+from .storefront_utils import storefront_cache_key, invalidate_storefront_cache
 from .models import Category, Product, SupportTicket, SupportTicketMessage
 from .serializers import CategorySerializer, ProductSerializer, SupportTicketSerializer, SupportTicketMessageSerializer
 from crm.services import create_audit_log
@@ -1040,6 +1042,8 @@ class CategoryListCreateView(generics.ListCreateAPIView):
                         f"Created category '{category.name}'.",
                     )
 
+            invalidate_storefront_cache(organization.pk)
+
             return Response(
                 serializer.data,
                 status=status.HTTP_201_CREATED,
@@ -1054,6 +1058,8 @@ class CategoryListCreateView(generics.ListCreateAPIView):
             category.id,
             f"Created category '{category.name}'.",
         )
+
+        invalidate_storefront_cache(organization.pk)
 
         return Response(
             serializer.data,
@@ -1075,6 +1081,7 @@ class CategoryStatusView(APIView):
         category.is_active = active
         category.save(update_fields=["is_active", "updated_at"])
         _record_api_audit(request, "UPDATE", "Category", category.id, f"Set category '{category.name}' active={active}.")
+        invalidate_storefront_cache(organization.pk)
         return Response(CategorySerializer(category).data)
 
 
@@ -1160,6 +1167,8 @@ class ProductListCreateView(generics.ListCreateAPIView):
                     f"Created product '{product.name}'.",
                 )
 
+        invalidate_storefront_cache(organization.pk)
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1212,6 +1221,7 @@ class ProductDetailView(generics.RetrieveUpdateAPIView):
                 reason="Stock quantity changed in Product Management.",
             )
         _record_api_audit(self.request, "UPDATE", "Product", product.id, f"Updated product '{product.name}'.")
+        invalidate_storefront_cache(product.organization_id)
 
 
 class ProductStatusView(APIView):
@@ -1230,6 +1240,7 @@ class ProductStatusView(APIView):
         product.status = next_status
         product.save(update_fields=["status", "updated_at"])
         _record_api_audit(request, "UPDATE", "Product", product.id, f"Changed product status to {next_status}.")
+        invalidate_storefront_cache(organization.pk)
         return Response(ProductSerializer(product).data)
 
 
@@ -1272,10 +1283,14 @@ class CrmCategoryListView(APIView):
     def get(self, request):
         # Public responses deliberately expose active categories only.
         organization_id = _public_store_organization_id(request)
-        queryset = Category.objects.filter(is_active=True)
-        queryset = queryset.filter(organization_id=organization_id) if organization_id else queryset.none()
-        data = CategorySerializer(queryset.order_by("name"), many=True).data
-        return Response(data)
+        key = storefront_cache_key("categories", organization_id)
+
+        def build():
+            queryset = Category.objects.filter(is_active=True)
+            queryset = queryset.filter(organization_id=organization_id) if organization_id else queryset.none()
+            return CategorySerializer(queryset.order_by("name"), many=True).data
+
+        return Response(cache.get_or_set(key, build, 60))
 
 
 class CrmProductListView(APIView):
@@ -1283,7 +1298,10 @@ class CrmProductListView(APIView):
 
     def get(self, request):
         # Public route can only return published items from active categories.
-        return Response(ProductSerializer(_public_product_queryset(request), many=True).data)
+        organization_id = _public_store_organization_id(request)
+        key = storefront_cache_key("products", organization_id, request.GET.urlencode())
+        build = lambda: ProductSerializer(_public_product_queryset(request), many=True).data
+        return Response(cache.get_or_set(key, build, 60))
 
 
 class SupportTicketListCreateView(generics.ListCreateAPIView):
@@ -1597,8 +1615,10 @@ class BannerListCreateView(generics.ListCreateAPIView):
         return queryset.order_by("-created_at")
 
     def perform_create(self, serializer):
-        banner = serializer.save(organization=_require_organization(self.request), created_by=self.request.user)
+        organization = _require_organization(self.request)
+        banner = serializer.save(organization=organization, created_by=self.request.user)
         _record_api_audit(self.request, "CREATE", "Banner", banner.id, f"Created banner '{banner.name}'.")
+        invalidate_storefront_cache(organization.pk)
 
 
 class BannerDetailView(generics.RetrieveUpdateAPIView):
@@ -1612,6 +1632,7 @@ class BannerDetailView(generics.RetrieveUpdateAPIView):
     def perform_update(self, serializer):
         banner = serializer.save()
         _record_api_audit(self.request, "UPDATE", "Banner", banner.id, f"Updated banner '{banner.name}'.")
+        invalidate_storefront_cache(banner.organization_id)
 
 
 class BannerStatusView(APIView):
@@ -1619,13 +1640,15 @@ class BannerStatusView(APIView):
     permission_classes = [HasCRMPagePermission]
 
     def patch(self, request, pk):
-        banner = get_object_or_404(_Banner, organization=_require_organization(request), pk=pk)
+        organization = _require_organization(request)
+        banner = get_object_or_404(_Banner, organization=organization, pk=pk)
         next_status = str(request.data.get("status", ""))
         if next_status not in _Banner.BannerStatus.values:
             raise ValidationError({"status": "Status must be Draft, Active or Paused."})
         banner.status = next_status
         banner.save(update_fields=["status", "updated_at"])
         _record_api_audit(request, "UPDATE", "Banner", banner.id, f"Set banner status to {next_status}.")
+        invalidate_storefront_cache(organization.pk)
         return Response(_BannerSerializer(banner).data)
 
 
@@ -1669,6 +1692,7 @@ class HomepagePromotionSettingsView(APIView):
         serializer.is_valid(raise_exception=True)
         saved = serializer.save(organization=organization, updated_by=request.user)
         _record_api_audit(request, "UPDATE", "HomepagePromotionSettings", organization.id, "Updated homepage promotion settings.")
+        invalidate_storefront_cache(organization.pk)
         return Response(_HomepagePromotionSettingsSerializer(saved, context={"request": request}).data)
 
 
@@ -1677,14 +1701,19 @@ class CrmBannerListView(APIView):
 
     def get(self, request):
         organization_id = _public_store_organization_id(request)
-        # Banner start/end dates are selected in the India-based Crm UI.
-        # Use the Crm's local calendar date rather than the server's UTC date.
-        today = timezone.localdate(timezone=ZoneInfo("Asia/Kolkata"))
-        queryset = _Banner.objects.filter(status="Active", start_date__lte=today, end_date__gte=today)
-        queryset = queryset.filter(organization_id=organization_id) if organization_id else queryset.none()
-        placement = request.query_params.get("placement", "All")
-        if placement and placement != "All": queryset = queryset.filter(placement=placement)
-        return Response(_BannerSerializer(queryset.order_by("-created_at"), many=True).data)
+        key = storefront_cache_key("banners", organization_id, request.GET.urlencode())
+
+        def build():
+            # Banner start/end dates are selected in the India-based Crm UI.
+            # Use the Crm's local calendar date rather than the server's UTC date.
+            today = timezone.localdate(timezone=ZoneInfo("Asia/Kolkata"))
+            queryset = _Banner.objects.filter(status="Active", start_date__lte=today, end_date__gte=today)
+            queryset = queryset.filter(organization_id=organization_id) if organization_id else queryset.none()
+            placement = request.query_params.get("placement", "All")
+            if placement and placement != "All": queryset = queryset.filter(placement=placement)
+            return _BannerSerializer(queryset.order_by("-created_at"), many=True).data
+
+        return Response(cache.get_or_set(key, build, 60))
 
 
 class CrmBannerMetricView(APIView):
@@ -1710,11 +1739,15 @@ class CrmHomepagePromotionSettingsView(APIView):
 
     def get(self, request):
         organization_id = _public_store_organization_id(request)
-        settings_obj = _HomepagePromotionSettings.objects.filter(organization_id=organization_id).first() if organization_id else None
-        if not settings_obj:
-            return Response(_homepage_promotion_defaults())
-        data = _HomepagePromotionSettingsSerializer(settings_obj).data
-        return Response(data)
+        key = storefront_cache_key("homepage-promotions", organization_id)
+
+        def build():
+            settings_obj = _HomepagePromotionSettings.objects.filter(organization_id=organization_id).first() if organization_id else None
+            if not settings_obj:
+                return _homepage_promotion_defaults()
+            return _HomepagePromotionSettingsSerializer(settings_obj).data
+
+        return Response(cache.get_or_set(key, build, 60))
 
 # ---------------------------------------------------------------------------
 # Phase 23 — Crm settings, communications and notifications APIs
@@ -1783,6 +1816,7 @@ class CrmSettingsView(APIView):
             defaults={"data": payload, "updated_by": request.user},
         )
         _record_api_audit(request, "UPDATE", "CrmSettings", record.pk, "Updated Crm settings.")
+        invalidate_storefront_cache(organization.pk)
         return Response(record.data)
 
 
@@ -1791,8 +1825,13 @@ class CrmPublicSettingsView(APIView):
 
     def get(self, request):
         organization_id = _public_store_organization_id(request)
-        record = _CrmSettings.objects.filter(organization_id=organization_id).first() if organization_id else None
-        return Response(record.data if record and isinstance(record.data, dict) else {})
+        key = storefront_cache_key("settings", organization_id)
+
+        def build():
+            record = _CrmSettings.objects.filter(organization_id=organization_id).first() if organization_id else None
+            return record.data if record and isinstance(record.data, dict) else {}
+
+        return Response(cache.get_or_set(key, build, 60))
 
 
 class CommunicationTemplateListCreateView(generics.ListCreateAPIView):

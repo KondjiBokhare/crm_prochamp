@@ -60,6 +60,12 @@ STOREFRONT_ORGANIZATION_ID = os.getenv(
     "STOREFRONT_ORGANIZATION_ID"
 )
 
+TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY")
+
+FRONTEND_BASE_URL = os.getenv(
+    "FRONTEND_BASE_URL", "http://localhost:5173"
+).rstrip("/")
+
 
 # --------------------------------------------------
 # Applications
@@ -165,6 +171,17 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
     "EXCEPTION_HANDLER": "config.exceptions.custom_exception_handler",
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "120/minute",
+        "user": "300/minute",
+        "auth-login": "10/minute",
+        "auth-register": "5/minute",
+        "auth-email-verify": "5/minute",
+    },
 }
 
 
@@ -237,14 +254,29 @@ STORAGES = {
 # Email
 # --------------------------------------------------
 
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True").lower() in {
+    "true",
+    "1",
+    "yes",
+}
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+
+# Switches to real Gmail SMTP delivery as soon as EMAIL_HOST_USER is
+# configured; stays on the console backend (prints to the terminal)
+# until then, so local dev keeps working without any credentials.
 EMAIL_BACKEND = os.getenv(
     "EMAIL_BACKEND",
-    "django.core.mail.backends.console.EmailBackend",
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST_USER
+    else "django.core.mail.backends.console.EmailBackend",
 )
 
 DEFAULT_FROM_EMAIL = os.getenv(
     "DEFAULT_FROM_EMAIL",
-    "noreply@example.com",
+    EMAIL_HOST_USER or "noreply@example.com",
 )
 
 

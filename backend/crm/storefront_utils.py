@@ -1,8 +1,32 @@
 """Shared organization/customer helpers for authenticated storefront APIs."""
 from django.conf import settings
+from django.core.cache import cache
 
 from accounts.models import Organization
 from .models import Category, Customer, CrmCustomerProfile
+
+# Cache keys used by the public storefront read endpoints, one per organization.
+STOREFRONT_CACHE_NAMES = (
+    "categories",
+    "products",
+    "banners",
+    "homepage-promotions",
+    "settings",
+)
+
+
+def storefront_cache_key(name, organization_id, extra=""):
+    """Build the cache key for a public storefront endpoint."""
+    return f"storefront:{name}:{organization_id}:{extra}"
+
+
+def invalidate_storefront_cache(organization_id):
+    """Drop cached public storefront responses for one organization."""
+    if organization_id is None:
+        return
+    cache.delete_many(
+        [storefront_cache_key(name, organization_id) for name in STOREFRONT_CACHE_NAMES]
+    )
 
 
 def get_storefront_organization():

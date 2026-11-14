@@ -30,6 +30,8 @@ const Products = lazy(() => import("../pages/customer/Products"));
 const ProductDetails = lazy(() => import("../pages/customer/ProductDetails"));
 const Login = lazy(() => import("../pages/customer/Login"));
 const Signup = lazy(() => import("../pages/customer/Signup"));
+const CheckYourEmail = lazy(() => import("../pages/customer/CheckYourEmail"));
+const VerifyEmail = lazy(() => import("../pages/customer/VerifyEmail"));
 const Cart = lazy(() => import("../pages/customer/Cart"));
 const Checkout = lazy(() => import("../pages/customer/Checkout"));
 const OrderConfirmation = lazy(
@@ -190,6 +192,8 @@ function AppRouteContent() {
             path="/order-confirmation"
             element={<OrderConfirmation />}
           />
+          <Route path="/check-email" element={<CheckYourEmail />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
 
           {/* Customer authentication is rendered separately below. */}
 

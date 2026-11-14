@@ -3,7 +3,9 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import serializers
+from .email_utils import send_verification_email
 from .models import Organization
+from .turnstile import verify_turnstile
 User = get_user_model()
 
 STAFF_ROLE_CHOICES = [
@@ -52,6 +54,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         trim_whitespace=False,
     )
 
+    turnstile_token = serializers.CharField(write_only=True)
+
     class Meta:
         model = User
         fields = [
@@ -60,10 +64,11 @@ class RegisterSerializer(serializers.ModelSerializer):
             "password",
             "first_name",
             "last_name",
+            "turnstile_token",
         ]
         read_only_fields = ["id"]
 
-    
+
     def validate_email(self, value):
         value = User.objects.normalize_email(value.strip().lower())
 
@@ -80,6 +85,17 @@ class RegisterSerializer(serializers.ModelSerializer):
         validate_password(value)
         return value
 
+    def validate_turnstile_token(self, value):
+        request = self.context.get("request")
+        remote_ip = request.META.get("REMOTE_ADDR") if request else None
+
+        if not verify_turnstile(value, remote_ip):
+            raise serializers.ValidationError(
+                "Bot verification failed. Please try again."
+            )
+
+        return value
+
     def create(self, validated_data):
         """Create the customer and related CRM records atomically."""
         from crm.storefront_utils import (
@@ -87,6 +103,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             get_storefront_organization,
         )
 
+        validated_data.pop("turnstile_token")
         password = validated_data.pop("password")
         organization = get_storefront_organization()
 
@@ -103,13 +120,16 @@ class RegisterSerializer(serializers.ModelSerializer):
             user = User.objects.create_user(
                 password=password,
                 role=User.Role.CUSTOMER,
-                is_active=True,
+                # Account is activated once the user confirms their email.
+                is_active=False,
                 organization=organization,
                 **validated_data,
             )
 
             # Creates the CRM profile and customer record.
             ensure_storefront_customer(user, organization)
+
+        send_verification_email(user)
 
         return user
 

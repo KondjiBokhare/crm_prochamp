@@ -1,17 +1,21 @@
 import uuid
 from datetime import datetime, timezone as datetime_timezone
 
-from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
+from django.core import signing
+
 from rest_framework import generics, status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from .email_utils import read_email_verification_token, send_verification_email
 from .models import Organization, RefreshToken
 from .permissions import (
     ACCOUNT_ROLE_ACCESS,
@@ -162,6 +166,8 @@ class RegisterView(generics.CreateAPIView):
 
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth-register"
 
 
 class MeView(generics.RetrieveAPIView):
@@ -441,6 +447,7 @@ class StaffUserDetailView(generics.RetrieveUpdateAPIView):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
 def custom_login(request):
     """
     Authenticate using email and password.
@@ -456,21 +463,28 @@ def custom_login(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    user = authenticate(
-        request,
-        email=email,
-        password=password,
-    )
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        user = None
 
-    if user is None:
+    # Checked directly (rather than via authenticate()) so inactive
+    # accounts still reach the is_active branch below instead of being
+    # silently rejected as "invalid credentials" by the auth backend.
+    if user is None or not user.check_password(password):
         return Response(
             {"detail": "Invalid email or password."},
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
     if not user.is_active:
+        detail = (
+            "Please verify your email before signing in."
+            if user.role == User.Role.CUSTOMER
+            else "This account is inactive."
+        )
         return Response(
-            {"detail": "This account is inactive."},
+            {"detail": detail},
             status=status.HTTP_403_FORBIDDEN,
         )
 
@@ -490,12 +504,16 @@ def custom_login(request):
     )
 
 
+custom_login.cls.throttle_scope = "auth-login"
+
+
 # ============================================================
 # CUSTOM JWT REFRESH
 # ============================================================
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
 def custom_refresh(request):
     """Validate and rotate a refresh token."""
     raw_token = request.data.get("refresh")
@@ -565,6 +583,9 @@ def custom_refresh(request):
     )
 
 
+custom_refresh.cls.throttle_scope = "auth-login"
+
+
 # ============================================================
 # CUSTOM JWT LOGOUT
 # ============================================================
@@ -613,3 +634,61 @@ def custom_logout(request):
         {"detail": "Logout successful."},
         status=status.HTTP_200_OK,
     )
+
+
+# ============================================================
+# EMAIL VERIFICATION
+# ============================================================
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def verify_email(request):
+    """Activate an account using the token emailed at registration."""
+    token = request.data.get("token")
+
+    if not isinstance(token, str) or not token:
+        return Response(
+            {"detail": "A verification token is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        user_id = read_email_verification_token(token)
+        user = User.objects.get(pk=user_id)
+    except (signing.BadSignature, User.DoesNotExist):
+        return Response(
+            {"detail": "This verification link is invalid or has expired."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not user.is_active:
+        user.is_active = True
+        user.save(update_fields=["is_active"])
+
+        if user.role == User.Role.CUSTOMER:
+            from crm.storefront_utils import ensure_storefront_customer
+
+            ensure_storefront_customer(user)
+
+    return Response({"detail": "Your email has been verified. You can now sign in."})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
+def resend_verification_email(request):
+    """Resend the verification email for an unverified account."""
+    email = str(request.data.get("email", "")).strip().lower()
+
+    if email:
+        user = User.objects.filter(email__iexact=email, is_active=False).first()
+        if user:
+            send_verification_email(user)
+
+    # Always respond generically so this endpoint cannot be used to enumerate accounts.
+    return Response({
+        "detail": "If an account with that email needs verification, we've sent a new link."
+    })
+
+
+resend_verification_email.cls.throttle_scope = "auth-email-verify"
