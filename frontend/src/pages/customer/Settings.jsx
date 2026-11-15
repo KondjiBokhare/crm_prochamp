@@ -38,7 +38,11 @@ function Settings() {
   // =========================================
   // NOTIFICATIONS
   // =========================================
-  const { preferences: notificationPreferences, updatePreference: updateNotificationPreference, error: notificationError, isApiMode: notificationApiMode } = useCustomerNotificationPreferences();
+ const {
+  preferences: notificationPreferences,
+  updatePreference: updateNotificationPreference,
+  error: notificationError
+} = useCustomerNotificationPreferences();
 
   // =========================================
   // PRIVACY
@@ -222,7 +226,7 @@ function Settings() {
             </div>
           </div>
           {notificationError && <div className="crm-error-banner" role="alert">{notificationError}</div>}
-          {notificationApiMode && <p className="support-success-notice">Email, SMS and WhatsApp preferences are saved to your Django account. Marketing preferences remain local until a backend field is added.</p>}
+          {/* {notificationApiMode && <p className="support-success-notice">Email, SMS and WhatsApp preferences are saved to your Django account. Marketing preferences remain local until a backend field is added.</p>} */}
 
           <div className="settings-list">
 
