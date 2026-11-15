@@ -50,8 +50,28 @@ function Signup() {
     }
     setLoading(true);
     try {
-      await registerCustomerWithBackend({ firstName, lastName, email, password, turnstileToken });
-      navigate("/check-email", { replace: true, state: { email } });
+      await registerCustomerWithBackend({
+  firstName,
+  lastName,
+  email,
+  password,
+  turnstileToken
+});
+
+// Preserve email for the resend-verification page.
+try {
+  window.sessionStorage.setItem(
+    "techgear_pending_verification_email",
+    email
+  );
+} catch (error) {
+  console.warn("Could not save pending verification email:", error);
+}
+
+navigate("/check-email", {
+  replace: true,
+  state: { email }
+});
     } catch (requestError) {
       setError(requestError.message || "Could not create your account.");
     } finally {

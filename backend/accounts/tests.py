@@ -1,7 +1,7 @@
 
 from datetime import timedelta
 from types import SimpleNamespace
-
+from unittest.mock import patch
 import jwt
 
 from django.contrib.auth import get_user_model
@@ -35,16 +35,25 @@ class RegisterTest(APITestCase):
         data = {
             "email": "test@example.com",
             "password": "StrongPassword!927",
+            "turnstile_token": "ci-test-token",
         }
 
         with override_settings(
             STOREFRONT_ORGANIZATION_ID=organization.pk,
         ):
-            response = self.client.post(
-                "/api/auth/register/",
-                data,
-                format="json",
-            )
+            with patch(
+                "accounts.serializers.verify_turnstile",
+                return_value=True,
+            ), patch(
+                "accounts.serializers.send_verification_email"
+            ) as send_email:
+                response = self.client.post(
+                    "/api/auth/register/",
+                    data,
+                    format="json",
+                )
+
+        send_email.assert_called_once()
 
         self.assertEqual(
             response.status_code,
@@ -500,4 +509,12 @@ class CustomJWTLifecycleTests(TestCase):
 
         response = self.login()
 
-        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertEqual(
+            response.data["detail"],
+            "This account is inactive.",
+        )
