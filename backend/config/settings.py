@@ -279,6 +279,25 @@ DEFAULT_FROM_EMAIL = os.getenv(
     EMAIL_HOST_USER or "noreply@example.com",
 )
 
+# Email provider selection
+# Local development: existing Gmail SMTP
+# Render production: Google Apps Script HTTPS relay
+
+EMAIL_PROVIDER = os.getenv(
+    "EMAIL_PROVIDER",
+    "smtp",
+).strip().lower()
+
+GOOGLE_APPS_SCRIPT_URL = os.getenv(
+    "GOOGLE_APPS_SCRIPT_URL",
+    "",
+).strip()
+
+GOOGLE_APPS_SCRIPT_SECRET = os.getenv(
+    "GOOGLE_APPS_SCRIPT_SECRET",
+    "",
+).strip()
+
 
 # --------------------------------------------------
 # Authentication user model
