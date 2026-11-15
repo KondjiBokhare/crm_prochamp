@@ -38,7 +38,11 @@ function Settings() {
   // =========================================
   // NOTIFICATIONS
   // =========================================
-  const { preferences: notificationPreferences, updatePreference: updateNotificationPreference, error: notificationError, isApiMode: notificationApiMode } = useCustomerNotificationPreferences();
+ const {
+  preferences: notificationPreferences,
+  updatePreference: updateNotificationPreference,
+  error: notificationError
+} = useCustomerNotificationPreferences();
 
   // =========================================
   // PRIVACY
