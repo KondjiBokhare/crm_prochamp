@@ -1468,9 +1468,11 @@ class DiscountCouponSerializer(serializers.ModelSerializer):
 
         request = self.context.get("request")
         user = getattr(request, "user", None)
+        organization = self.context.get("organization")
 
         organization_id = (
-            getattr(user, "organization_id", None)
+            getattr(organization, "id", None)
+            or getattr(user, "organization_id", None)
             or getattr(self.instance, "organization_id", None)
         )
 
