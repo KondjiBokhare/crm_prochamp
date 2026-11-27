@@ -1,4 +1,4 @@
-import { authJsonRequest } from "./authApi";
+ 
 import { getStorefrontVisitorId, saveStorefrontCart } from "./storefrontCommerceApiService";
 
 const APPLIED_COUPON_KEY = "techgear_applied_coupon_phase26_v1";
@@ -30,21 +30,48 @@ export function getCartSignature(items = []) {
     .join("|");
 }
 
-export async function validateStorefrontCoupon(code, cartItems = []) {
-  if (!storefrontCouponsApiEnabled) throw new Error("Storefront coupon API mode is not enabled. Add VITE_STOREFRONT_COUPONS_MODE=api and restart Vite.");
-  // Save the latest cart snapshot first so the backend validates server-side prices and quantities.
-  await saveStorefrontCart(cartItems);
-  const result = await authJsonRequest("/api/storefront/coupons/validate/", {
-    method: "POST",
-    body: { code: String(code || "").trim().toUpperCase(), visitor_id: getStorefrontVisitorId() },
-  });
-  if (!result?.valid) throw new Error(result?.detail || "This coupon cannot be applied to the current cart.");
+export async function validateStorefrontCoupon(
+  code,
+  cartItems = [],
+  authenticatedRequest
+) {
+  if (!storefrontCouponsApiEnabled) {
+    throw new Error("Storefront coupon API mode is not enabled.");
+  }
+
+  if (typeof authenticatedRequest !== "function") {
+    throw new Error("Please sign in to apply a coupon.");
+  }
+
+  await saveStorefrontCart(cartItems, authenticatedRequest);
+
+  const result = await authenticatedRequest(
+    "/api/storefront/coupons/validate/",
+    {
+      method: "POST",
+      body: {
+        code: String(code || "").trim().toUpperCase(),
+        visitor_id: getStorefrontVisitorId(),
+      },
+    }
+  );
+
+  if (!result?.valid) {
+    throw new Error(
+      result?.detail ||
+      "This coupon cannot be applied to the current cart."
+    );
+  }
+
   return {
     code: String(result.code || ""),
     name: String(result.name || ""),
     discountType: String(result.discountType || "PERCENT"),
     value: Number(result.value) || 0,
-    discountAmount: Math.max(0, Number(result.discountAmount) || 0),
+    discountAmount: Math.max(
+      0,
+      Number(result.discountAmount) || 0
+    ),
     subtotal: Math.max(0, Number(result.subtotal) || 0),
     note: String(result.note || ""),
   };

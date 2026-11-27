@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { ShoppingCart } from "lucide-react";
-
+import { useAuth } from "../../context/AuthContext";
 import { useCart } from "../../context/CartContext";
 
 import CartItem from "../../components/cart/CartItem";
@@ -25,7 +25,7 @@ function Cart() {
   const catalogue = useProductCatalog();
   const cartProductIds = new Set(cartItems.map((item) => String(item.id)));
   const relatedProducts = catalogue.filter((product) => !cartProductIds.has(String(product.id))).slice(0, 4);
-
+  const { user, authenticatedRequest } = useAuth();
   const { subtotal, discount, delivery } = calculateCartTotals(cartItems, appliedCoupon?.discountAmount || 0);
 
   useEffect(() => {
@@ -42,7 +42,15 @@ function Cart() {
     setCouponError(""); setCouponNotice(""); setCouponBusy(true);
     try {
       if (!cartItems.length) throw new Error("Add a product to your cart first.");
-      const result = await validateStorefrontCoupon(couponInput, cartItems);
+      if (!user?.isAuthenticated || user.role !== "CUSTOMER") {
+  throw new Error("Please sign in as a customer to apply a coupon.");
+}
+
+const result = await validateStorefrontCoupon(
+  couponInput,
+  cartItems,
+  authenticatedRequest
+);
       const stored = { ...result, cartSignature };
       saveAppliedStorefrontCoupon(stored);
       setAppliedCoupon(stored);

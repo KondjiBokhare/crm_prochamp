@@ -60,22 +60,56 @@ function mapCartResponse(response) {
     .map((row) => ({ ...normaliseProduct(row.product), quantity: Number(row.quantity) || 1 }));
 }
 
-export async function getStorefrontCart() {
+export async function getStorefrontCart(authenticatedRequest) {
   const visitorId = getStorefrontVisitorId();
-  const response = await authJsonRequest(`/api/storefront/cart/?visitor_id=${encodeURIComponent(visitorId)}`);
+
+  if (typeof authenticatedRequest !== "function") {
+    throw new Error("Please sign in to access your saved cart.");
+  }
+
+  const response = await authenticatedRequest(
+    `/api/storefront/cart/?visitor_id=${encodeURIComponent(visitorId)}`
+  );
+
   return mapCartResponse(response);
 }
 
-export async function saveStorefrontCart(items = []) {
+export async function saveStorefrontCart(
+  items = [],
+  authenticatedRequest
+) {
   const visitorId = getStorefrontVisitorId();
-  const safeItems = (Array.isArray(items) ? items : []).map((item) => ({
-    product_id: Number(item.id),
-    quantity: Math.min(100, Math.max(1, Number.parseInt(item.quantity, 10) || 1)),
-  })).filter((item) => Number.isInteger(item.product_id) && item.product_id > 0).slice(0, 50);
-  const response = await authJsonRequest("/api/storefront/cart/", {
-    method: "PUT",
-    body: { visitor_id: visitorId, items: safeItems },
-  });
+
+  if (typeof authenticatedRequest !== "function") {
+    throw new Error("Please sign in to save your cart.");
+  }
+
+  const safeItems = (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      product_id: Number(item.id),
+      quantity: Math.min(
+        100,
+        Math.max(1, Number.parseInt(item.quantity, 10) || 1)
+      ),
+    }))
+    .filter(
+      (item) =>
+        Number.isInteger(item.product_id) &&
+        item.product_id > 0
+    )
+    .slice(0, 50);
+
+  const response = await authenticatedRequest(
+    "/api/storefront/cart/",
+    {
+      method: "PUT",
+      body: {
+        visitor_id: visitorId,
+        items: safeItems,
+      },
+    }
+  );
+
   return mapCartResponse(response);
 }
 

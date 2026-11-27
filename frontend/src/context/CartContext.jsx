@@ -57,11 +57,28 @@ function mergeCarts(userCart, guestCart) {
 }
 
 export function CartProvider({ children }) {
-  const { user } = useAuth();
+  const {
+  user,
+  authenticatedRequest,
+  isInitializing,
+} = useAuth();
+
+const customerId =
+  user?.role === "CUSTOMER" &&
+  user?.authProvider === "django"
+    ? user.id
+    : null;
 
   const [cartItems, setCartItems] =
     useState([]);
-  const [cartApiReady, setCartApiReady] = useState(false);
+  const [cartApiOwner, setCartApiOwner] = useState(null);
+const cartRequestRef = useRef(authenticatedRequest);
+const cartApiReady =
+  customerId !== null && cartApiOwner === customerId;
+
+useEffect(() => {
+  cartRequestRef.current = authenticatedRequest;
+}, [authenticatedRequest]);
 
   const previousUserIdRef = useRef(null);
 
@@ -204,35 +221,98 @@ export function CartProvider({ children }) {
   }, [cartItems, user]);
 
   // API mode uses a pseudonymous visitor key and stores the cart in Django/PostgreSQL.
-  useEffect(() => {
-    if (!storefrontCartApiEnabled) return undefined;
-    let active = true;
-    getStorefrontCart()
-      .then((items) => {
-        if (!active) return;
-        // Carry over the previous browser-local cart when valid products are now on the API catalogue.
-        const legacyItems = loadCart(GUEST_CART_KEY);
-        const mergedItems = mergeCarts(items, legacyItems);
-        setCartItems(mergedItems);
-        setCartApiReady(true);
-      })
-      .catch((error) => {
-        console.error("Could not load the persisted storefront cart. Cart API sync is paused until reload.", error?.message || error);
-      });
-    return () => { active = false; };
-  }, []);
+  // Load server cart only for authenticated customers.
+useEffect(() => {
+  if (!storefrontCartApiEnabled || isInitializing) {
+    return undefined;
+  }
 
-  useEffect(() => {
-    if (!storefrontCartApiEnabled || !cartApiReady) return undefined;
-    const timeoutId = window.setTimeout(() => {
-      saveStorefrontCart(cartItems).then(() => {
-        try { localStorage.removeItem(GUEST_CART_KEY); } catch { /* legacy local cart cleanup is best-effort */ }
-      }).catch((error) => {
-        console.error("Could not save the storefront cart to Django.", error?.message || error);
-      });
-    }, 220);
-    return () => window.clearTimeout(timeoutId);
-  }, [cartItems, cartApiReady]);
+  let active = true;
+
+  setCartApiOwner(null);
+
+  // Staff accounts should not access customer cart APIs.
+  if (user && user.role !== "CUSTOMER") {
+    setCartItems([]);
+    return undefined;
+  }
+
+  // Guests continue using browser-local carts.
+  if (customerId === null) {
+    setCartItems(loadCart(GUEST_CART_KEY));
+    return undefined;
+  }
+
+  setCartItems([]);
+
+  getStorefrontCart(cartRequestRef.current)
+    .then(async (items) => {
+      if (!active) return;
+
+      const guestItems = loadCart(GUEST_CART_KEY);
+      const mergedItems = mergeCarts(items, guestItems);
+
+      if (guestItems.length) {
+        await saveStorefrontCart(
+          mergedItems,
+          cartRequestRef.current
+        );
+      }
+
+      if (!active) return;
+
+      localStorage.removeItem(GUEST_CART_KEY);
+
+      setCartItems(mergedItems);
+      setCartApiOwner(customerId);
+    })
+    .catch((error) => {
+      if (!active) return;
+
+      console.error(
+        "Could not load the persisted storefront cart:",
+        error?.message || error
+      );
+    });
+
+  return () => {
+    active = false;
+  };
+}, [customerId, isInitializing, user?.role]);
+
+
+// Save authenticated customer cart to Django.
+useEffect(() => {
+  if (
+    !storefrontCartApiEnabled ||
+    !cartApiReady ||
+    isInitializing ||
+    customerId === null
+  ) {
+    return undefined;
+  }
+
+  const timeoutId = window.setTimeout(() => {
+    saveStorefrontCart(
+      cartItems,
+      cartRequestRef.current
+    ).catch((error) => {
+      console.error(
+        "Could not save the storefront cart:",
+        error?.message || error
+      );
+    });
+  }, 220);
+
+  return () => window.clearTimeout(timeoutId);
+}, [
+  cartItems,
+  cartApiReady,
+  customerId,
+  isInitializing,
+]);
+
+   
 
   // =========================================
   // ADD TO CART
