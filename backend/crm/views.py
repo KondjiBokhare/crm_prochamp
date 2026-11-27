@@ -3103,7 +3103,17 @@ class  DiscountCouponListCreateView(APIView):
 
     def post(self, request):
         organization = _require_organization(request)
-        serializer =    DiscountCouponSerializer(data=request.data, context={"organization": organization})
+        serializer = DiscountCouponSerializer(
+            data=request.data,
+            context={
+                "organization": organization,
+                "request": request,
+            }
+        )
+
+        print("COUPON DEBUG: View reached", flush=True)
+        print("COUPON DEBUG: View organization ID:", organization.pk, flush=True)
+        print("COUPON DEBUG: User organization ID:", request.user.organization_id, flush=True)
         serializer.is_valid(raise_exception=True)
         coupon = serializer.save(organization=organization, created_by=request.user, code=serializer.validated_data["code"].upper())
         _record_api_audit(request, "CREATE", "DiscountCoupon", coupon.id, f"Created coupon {coupon.code}.")

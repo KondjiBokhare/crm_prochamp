@@ -1471,10 +1471,16 @@ class DiscountCouponSerializer(serializers.ModelSerializer):
         organization = self.context.get("organization")
 
         organization_id = (
-            getattr(organization, "id", None)
+            getattr(organization, "pk", None)
             or getattr(user, "organization_id", None)
             or getattr(self.instance, "organization_id", None)
         )
+
+        # Temporary debugging
+        print("COUPON DEBUG: Validator reached", flush=True)
+        print("COUPON DEBUG: Context keys:", list(self.context.keys()), flush=True)
+        print("COUPON DEBUG: Organization type:", type(organization).__name__, flush=True)
+        print("COUPON DEBUG: Resolved organization ID:", organization_id, flush=True)
 
         if organization_id is None:
             raise serializers.ValidationError(
