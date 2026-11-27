@@ -759,7 +759,13 @@ class AnalyticsView(generics.GenericAPIView):
         delivered_orders = delivered_orders_qs.count()
         cancelled_orders = orders_in_period.filter(status=Order.OrderStatus.CANCELLED).count()
         total_revenue = delivered_orders_qs.aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
-        average_order_value = (total_revenue / delivered_orders) if delivered_orders else Decimal("0.00")
+        average_order_value = (
+            (total_revenue / delivered_orders).quantize(
+                Decimal("0.01")
+            )
+            if delivered_orders
+            else Decimal("0.00")
+        )
 
         campaigns_in_period = Campaign.objects.filter(
             organization=organization,
