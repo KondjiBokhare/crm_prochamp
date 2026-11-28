@@ -15656,3 +15656,136 @@ html[data-theme="dark"] .store-info-page .store-info-back:hover {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Direct checkout quantity controls */
+
+.checkout-layout-page .checkout-quantity-control {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.checkout-layout-page .checkout-quantity-stock {
+  font-size: 12px;
+  font-weight: 500;
+  color: #34764c;
+}
+
+.checkout-layout-page .checkout-quantity-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.checkout-layout-page .checkout-quantity-selector {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dedfd5;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.checkout-layout-page .checkout-quantity-selector button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: transparent;
+  color: inherit;
+  border: none;
+  cursor: pointer;
+}
+
+.checkout-layout-page .checkout-quantity-selector button:hover:not(:disabled) {
+  background: rgba(128, 128, 128, 0.12);
+}
+
+.checkout-layout-page .checkout-quantity-selector button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.checkout-layout-page .checkout-quantity-selector strong {
+  min-width: 34px;
+  text-align: center;
+  font-size: 14px;
+}
+
+/* =========================================
+   BUY NOW CHECKOUT - COUPON STYLING
+========================================= */
+
+.checkout-layout-page .checkout-coupon-box {
+  background: rgba(128, 128, 128, 0.035);
+  border: 1px solid rgba(128, 128, 128, 0.24);
+  border-radius: 5px;
+  padding: 15px;
+  margin: 18px 0 22px;
+}
+
+.checkout-layout-page .checkout-coupon-box label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.checkout-layout-page .checkout-coupon-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.checkout-layout-page .checkout-coupon-row input {
+  width: 100%;
+  min-width: 0;
+  height: 43px;
+  padding: 0 12px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  outline: none;
+  font-size: 13px;
+}
+
+.checkout-layout-page .checkout-coupon-row input:focus {
+  border-color: #9bb942;
+}
+
+.checkout-layout-page .checkout-coupon-row button {
+  padding: 0 16px;
+  background: #20231d;
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.checkout-layout-page .checkout-coupon-row button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.checkout-layout-page .checkout-coupon-success {
+  color: #34764c;
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.checkout-layout-page .checkout-coupon-error {
+  color: #dc2626;
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.checkout-layout-page .checkout-coupon-notice {
+  color: inherit;
+  font-size: 12px;
+  margin-top: 10px;
+  opacity: 0.8;
+}

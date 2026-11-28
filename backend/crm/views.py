@@ -3143,46 +3143,193 @@ class  DiscountCouponDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class  CrmCouponValidationView(APIView):
-    permission_classes = [_AllowAny]
+class CrmCouponValidationView(APIView):
+    permission_classes = [IsAuthenticated, IsCustomer]
 
     def post(self, request):
         organization_id = _phase25_Crm_org(request)
+
         if not organization_id:
-            return Response({"valid": False, "detail": "The Crm organization is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        visitor_id = _phase25_visitor_id(request.data.get("visitor_id"))
+            return Response({
+                "valid": False,
+                "detail": "The CRM organization is not configured."
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        checkout_mode = request.data.get("checkout_mode", "cart")
+
+        if checkout_mode not in ("cart", "buy_now"):
+            return Response({
+                "valid": False,
+                "detail": "Invalid checkout mode."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         code = str(request.data.get("code") or "").strip().upper()
+
         if not code or len(code) > 32:
-            return Response({"valid": False, "detail": "Enter a valid coupon code."})
-        coupon = _DiscountCoupon.objects.filter(organization_id=organization_id, code=code).first()
+            return Response({
+                "valid": False,
+                "detail": "Enter a valid coupon code."
+            })
+
+        coupon = _DiscountCoupon.objects.filter(
+            organization_id=organization_id,
+            code__iexact=code
+        ).first()
+
         if coupon is None:
-            return Response({"valid": False, "detail": "This coupon code was not found."})
+            return Response({
+                "valid": False,
+                "detail": "This coupon code was not found."
+            })
+
         now = timezone.now()
+
         if not coupon.is_active:
-            return Response({"valid": False, "detail": "This coupon is inactive."})
+            return Response({
+                "valid": False,
+                "detail": "This coupon is inactive."
+            })
+
         if coupon.starts_at and now < coupon.starts_at:
-            return Response({"valid": False, "detail": "This coupon is not active yet."})
+            return Response({
+                "valid": False,
+                "detail": "This coupon is not active yet."
+            })
+
         if coupon.ends_at and now > coupon.ends_at:
-            return Response({"valid": False, "detail": "This coupon has expired."})
-        if coupon.usage_limit is not None and coupon.used_count >= coupon.usage_limit:
-            return Response({"valid": False, "detail": "This coupon has reached its usage limit."})
-        cart = _CrmCart.objects.filter(
-            organization_id=organization_id, visitor_id=visitor_id
-        ).prefetch_related("items__product").first()
-        if not cart or not cart.items.exists():
-            return Response({"valid": False, "detail": "Add a product to your cart before applying a coupon."})
-        subtotal = sum((_Decimal(item.product.price) * item.quantity for item in cart.items.all()), Decimal("0.00"))
-        subtotal = subtotal.quantize(_Decimal("0.01"), rounding=_ROUND_HALF_UP)
+            return Response({
+                "valid": False,
+                "detail": "This coupon has expired."
+            })
+
+        if (
+            coupon.usage_limit is not None
+            and coupon.used_count >= coupon.usage_limit
+        ):
+            return Response({
+                "valid": False,
+                "detail": "This coupon has reached its usage limit."
+            })
+
+        # Independent Buy Now checkout
+        if checkout_mode == "buy_now":
+            raw_items = request.data.get("items")
+
+            if (
+                not isinstance(raw_items, list)
+                or len(raw_items) != 1
+                or not isinstance(raw_items[0], dict)
+            ):
+                return Response({
+                    "valid": False,
+                    "detail": "Select exactly one product."
+                })
+
+            item = raw_items[0]
+
+            product_id = item.get("id")
+            quantity = item.get("quantity")
+
+            if (
+                type(product_id) is not int
+                or product_id < 1
+                or type(quantity) is not int
+                or not 1 <= quantity <= 100
+            ):
+                return Response({
+                    "valid": False,
+                    "detail": "Invalid product ID or quantity."
+                })
+
+            product = Product.objects.filter(
+                pk=product_id,
+                organization_id=organization_id,
+                status=Product.ProductStatus.ACTIVE,
+                category__is_active=True,
+                category__organization_id=organization_id,
+            ).first()
+
+            if product is None:
+                return Response({
+                    "valid": False,
+                    "detail": "This product is unavailable."
+                })
+
+            if product.stock < quantity:
+                return Response({
+                    "valid": False,
+                    "detail": (
+                        f"Only {product.stock} unit(s) "
+                        "are currently available."
+                    )
+                })
+
+            subtotal = _Decimal(product.price) * quantity
+
+        # Existing shopping cart checkout
+        else:
+            visitor_id = _phase25_visitor_id(
+                request.data.get("visitor_id")
+            )
+
+            cart = _CrmCart.objects.filter(
+                organization_id=organization_id,
+                visitor_id=visitor_id
+            ).prefetch_related("items__product").first()
+
+            if not cart or not cart.items.exists():
+                return Response({
+                    "valid": False,
+                    "detail": "Add a product to your cart before applying a coupon."
+                })
+
+            subtotal = sum(
+                (
+                    _Decimal(item.product.price) * item.quantity
+                    for item in cart.items.all()
+                ),
+                _Decimal("0.00")
+            )
+
+        # Common coupon calculation
+        subtotal = subtotal.quantize(
+            _Decimal("0.01"),
+            rounding=_ROUND_HALF_UP
+        )
+
         if subtotal < coupon.min_order_value:
             return Response({
                 "valid": False,
-                "detail": f"This coupon needs a minimum cart value of ₹{coupon.min_order_value}.",
+                "detail": (
+                    "This coupon needs a minimum order "
+                    f"value of ₹{coupon.min_order_value}."
+                ),
                 "subtotal": str(subtotal),
             })
-        raw_discount = subtotal * coupon.value / _Decimal("100") if coupon.discount_type == "PERCENT" else coupon.value
-        if coupon.discount_type == "PERCENT" and coupon.max_discount is not None:
-            raw_discount = min(raw_discount, coupon.max_discount)
-        discount_amount = min(subtotal, raw_discount).quantize(_Decimal("0.01"), rounding=_ROUND_HALF_UP)
+
+        raw_discount = (
+            subtotal * coupon.value / _Decimal("100")
+            if coupon.discount_type == "PERCENT"
+            else coupon.value
+        )
+
+        if (
+            coupon.discount_type == "PERCENT"
+            and coupon.max_discount is not None
+        ):
+            raw_discount = min(
+                raw_discount,
+                coupon.max_discount
+            )
+
+        discount_amount = min(
+            subtotal,
+            raw_discount
+        ).quantize(
+            _Decimal("0.01"),
+            rounding=_ROUND_HALF_UP
+        )
+
         return Response({
             "valid": True,
             "code": coupon.code,
@@ -3191,8 +3338,13 @@ class  CrmCouponValidationView(APIView):
             "value": str(coupon.value),
             "discountAmount": str(discount_amount),
             "subtotal": str(subtotal),
-            "payableAfterCoupon": str(max(_Decimal("0.00"), subtotal - discount_amount).quantize(_Decimal("0.01"))),
-            "note": "Preview only. Coupon redemption is not recorded until real API order placement is implemented.",
+            "payableAfterCoupon": str(
+                max(
+                    _Decimal("0.00"),
+                    subtotal - discount_amount
+                ).quantize(_Decimal("0.01"))
+            ),
+            "note": "Preview only. Coupon eligibility is checked again and redemption is recorded when the API order is created.",
         })
 
 

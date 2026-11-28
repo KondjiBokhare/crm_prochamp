@@ -21,7 +21,7 @@ import { useProductCatalog } from "../../services/productCatalogService";
 import { recordCheckoutStarted } from "../../services/customerBehaviorService";
 
 function Checkout() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
 
   const { cartItems } = useCart();
@@ -35,6 +35,7 @@ function Checkout() {
   const products = useProductCatalog();
 
   const checkoutSignatureRef = useRef("");
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
 
   const isBuyNow =
     searchParams.get("mode") === "buy_now";
@@ -61,6 +62,29 @@ function Checkout() {
     directProduct &&
     validQuantity &&
     Number(directProduct.stock) >= requestedQuantity;
+
+  const updateDirectQuantity = (nextQuantity) => {
+  if (!isBuyNow || !directProduct || checkoutBusy) return;
+
+  const maxQuantity = Math.min(
+    Number(directProduct.stock),
+    100
+  );
+
+  if (
+    !Number.isInteger(nextQuantity) ||
+    nextQuantity < 1 ||
+    nextQuantity > maxQuantity
+  ) {
+    return;
+  }
+
+  const nextParams = new URLSearchParams(searchParams);
+
+  nextParams.set("quantity", String(nextQuantity));
+
+  setSearchParams(nextParams, { replace: true });
+};
 
   const checkoutItems = isBuyNow
     ? validDirectProduct
@@ -239,7 +263,12 @@ function Checkout() {
               onChange={setAddress}
             />
 
-            <CheckoutItems items={checkoutItems} />
+     <CheckoutItems
+  items={checkoutItems}
+  editableQuantity={isBuyNow}
+  onQuantityChange={updateDirectQuantity}
+  quantityDisabled={checkoutBusy}
+/>
 
             <PaymentSection
               selectedMethod={paymentMethod}
@@ -249,13 +278,19 @@ function Checkout() {
           </main>
 
           <CheckoutSummary
-            cartItems={checkoutItems}
-            address={address}
-            paymentMethod={paymentMethod}
-            customerEmail={user?.email || ""}
-            authenticatedRequest={authenticatedRequest}
-            checkoutMode={isBuyNow ? "buy_now" : "cart"}
-          />
+  key={
+    isBuyNow
+      ? `buy_now:${productId}:${requestedQuantity}`
+      : "cart"
+  }
+  cartItems={checkoutItems}
+  address={address}
+  paymentMethod={paymentMethod}
+  customerEmail={user?.email || ""}
+  authenticatedRequest={authenticatedRequest}
+  checkoutMode={isBuyNow ? "buy_now" : "cart"}
+  onBusyChange={setCheckoutBusy}
+/>
 
         </div>
       </div>
