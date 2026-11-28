@@ -7,12 +7,23 @@ import { calculateCartTotals } from "../../utils/pricing";
 import { getAppliedStorefrontCoupon } from "../../services/storefrontCouponApiService";
 import { createStorefrontOrder, storefrontOrdersApiEnabled } from "../../services/storefrontOrderApiService";
 
-function CheckoutSummary({ cartItems = [], address, paymentMethod, customerEmail = "", authenticatedRequest }) {
+function CheckoutSummary({
+  cartItems = [],
+  address,
+  paymentMethod,
+  customerEmail = "",
+  authenticatedRequest,
+  checkoutMode = "cart",
+}) {
   const navigate = useNavigate();
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const placedRef = useRef(false);
-  const appliedCoupon = getAppliedStorefrontCoupon();
+  const isBuyNow = checkoutMode === "buy_now";
+
+const appliedCoupon = isBuyNow
+  ? null
+  : getAppliedStorefrontCoupon();
   const { subtotal, discount, couponDiscount, delivery, total } = calculateCartTotals(cartItems, appliedCoupon?.discountAmount || 0);
 
   const handlePlaceOrder = async () => {
@@ -32,7 +43,17 @@ function CheckoutSummary({ cartItems = [], address, paymentMethod, customerEmail
       recordDemoPurchase(cartItems, order.total, order.id);
       // Keep the cart intact until the confirmation route has loaded the saved order.
       // Clearing here allowed Checkout's empty-cart redirect to beat navigation.
-      navigate(`/order-confirmation?orderId=${encodeURIComponent(order.id)}`, { replace: true });
+      navigate(
+  `/order-confirmation?orderId=${encodeURIComponent(order.id)}`,
+  {
+    replace: true,
+    state: {
+      clearCartAfterOrder: isBuyNow
+        ? null
+        : String(order.id),
+    },
+  }
+);
     } catch (err) {
       placedRef.current = false;
       setError(err.message || (storefrontOrdersApiEnabled ? "Could not create the order in Django." : "Could not create the demo order."));

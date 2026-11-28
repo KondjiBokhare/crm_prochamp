@@ -1,5 +1,11 @@
-import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+
+import {
+  Link,
+  useSearchParams,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { ArrowRight, PackageSearch } from "lucide-react";
 import OrderSuccess from "../../components/order/orderSuccess";
 import OrderSummaryCard from "../../components/order/OrderSummaryCard";
@@ -12,6 +18,13 @@ import { getStorefrontOrderById, storefrontOrdersApiEnabled } from "../../servic
 import { useCart } from "../../context/CartContext";
 
 function OrderConfirmation() {
+
+  const location = useLocation();
+const navigate = useNavigate();
+
+const cartCleanupRef = useRef(false);
+
+const clearCartAfterOrder =location.state?.clearCartAfterOrder;
   const [searchParams] = useSearchParams();
   const orderId = searchParams.get("orderId") || "";
   const { authenticatedRequest } = useAuth();
@@ -31,10 +44,26 @@ function OrderConfirmation() {
           : getDemoOrderById(orderId);
         if (!active) return;
         setOrder(found);
-        if (found) {
-          // Clear only after the confirmation page has retrieved the persisted order.
+        if (
+          found &&
+          String(found.id) === String(orderId) &&
+          clearCartAfterOrder === String(orderId) &&
+          !cartCleanupRef.current
+        ) {
+          cartCleanupRef.current = true;
+
           clearCart();
           clearAppliedStorefrontCoupon();
+
+          // Consume the checkout navigation state so that
+          // refreshing an old confirmation does not clear a new cart.
+          navigate(
+            `${location.pathname}${location.search}`,
+            {
+              replace: true,
+              state: null,
+            }
+          );
         }
       } catch (error) {
         if (active) setLoadError(error.message || "Could not load the order confirmation.");
@@ -44,8 +73,15 @@ function OrderConfirmation() {
     };
     load();
     return () => { active = false; };
-  }, [orderId, authenticatedRequest, clearCart]);
-
+  }, [
+  orderId,
+  authenticatedRequest,
+  clearCart,
+  clearCartAfterOrder,
+  navigate,
+  location.pathname,
+  location.search,
+]);
   return <div className="order-confirmation-shell">
     <header className="checkout-top-header"><StoreLogo variant="checkout"/><Link to="/products" className="checkout-continue-link">Continue Shopping →</Link></header>
     <div className="order-confirmation-page">
