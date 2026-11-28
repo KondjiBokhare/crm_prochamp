@@ -16,6 +16,7 @@ import { createNotificationRecord, getNotificationsForUser as getLocalNotificati
 // UI-facing data-access layer. The current implementation is intentionally
 // mock-only. Replace these functions with Django/FastAPI calls at integration.
 const STORAGE_KEY = "techgear_crm_mock_data_v1";
+const IS_PRODUCTION = import.meta.env.PROD;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const seedStore = () => ({
   customers: clone(crmCustomers),
@@ -55,13 +56,26 @@ function readStore() {
   }
 }
 
-let store = readStore();
+let store = IS_PRODUCTION
+  ? new Proxy({}, {
+      get() {
+        throw new Error(
+          "CRM mock database access is disabled in production."
+        );
+      },
+      set() {
+        throw new Error(
+          "CRM mock database updates are disabled in production."
+        );
+      },
+    })
+  : readStore();
 
 // In mock mode, multiple tabs share localStorage but each tab has its own
 // in-memory store. Refresh only the support-ticket collection before reads /
 // writes so customer and CRM-agent conversations stay in sync across tabs.
 function syncSupportTicketsFromStorage() {
-  if (typeof window === "undefined") return;
+  if (IS_PRODUCTION || typeof window === "undefined") return;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
@@ -73,7 +87,7 @@ function syncSupportTicketsFromStorage() {
 }
 
 function syncLeadsFromStorage() {
-  if (typeof window === "undefined") return;
+  if (IS_PRODUCTION || typeof window === "undefined") return;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
@@ -85,11 +99,21 @@ function syncLeadsFromStorage() {
 }
 
 function saveStore() {
+  if (IS_PRODUCTION) {
+    throw new Error(
+      "CRM mock database writes are disabled in production."
+    );
+  }
+
   if (typeof window === "undefined") return;
+
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(store)
+    );
   } catch {
-    // Mock data still works in memory if browser storage is disabled/full.
+    // Development mock data can remain in memory.
   }
 }
 function todayISO() {
