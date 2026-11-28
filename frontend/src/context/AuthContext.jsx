@@ -8,7 +8,10 @@ import {
 } from "react";
 import { DEMO_USERS } from "../auth/demoUsers";
 import { normalizeRoleName } from "../auth/roles";
-import { getStaffUserById } from "../services/staffUserService";
+import {
+  getStaffUserById,
+  clearManagedStaffDemoData,
+} from "../services/staffUserService";
 import {
   API_ACCESS_TOKEN_KEY,
   API_REFRESH_TOKEN_KEY,
@@ -26,6 +29,17 @@ import {
 
 const AuthContext = createContext(null);
 const DEMO_SESSION_KEY = "techgear_demo_session_v1";
+
+function clearLegacyAuthStorage() {
+  clearManagedStaffDemoData();
+
+  try {
+    localStorage.removeItem(DEMO_SESSION_KEY);
+  } catch {
+    // Ignore unavailable browser storage.
+  }
+}
+
 const isStorefrontAuthEnabled = String(import.meta.env.VITE_STOREFRONT_AUTH_MODE || "demo").trim().toLowerCase() === "api";
 
 function readSavedDemoUser() {
@@ -54,24 +68,13 @@ function readSavedDemoUser() {
   }
 }
 
-function readSavedCustomerUser() {
-  const user = readSavedDemoUser();
-  if (user?.role === "CUSTOMER") return user;
-  try {
-    // Do not restore a local demo staff session while real Django auth is enabled.
-    localStorage.removeItem(DEMO_SESSION_KEY);
-  } catch {
-    // Ignore unavailable storage.
-  }
-  return null;
-}
 
 function readInitialUser() {
-  if (!isApiAuthEnabled) return readSavedDemoUser();
-  const storedRefresh = safelyReadSessionStorage(API_REFRESH_TOKEN_KEY);
-  const storedAccess = safelyReadSessionStorage(API_ACCESS_TOKEN_KEY);
-  if (storedRefresh || storedAccess) return null;
-  return readSavedCustomerUser();
+  if (import.meta.env.PROD || isApiAuthEnabled) {
+    return null;
+  }
+
+  return readSavedDemoUser();
 }
 
 function saveApiTokens(tokens) {
@@ -91,6 +94,12 @@ export function AuthProvider({ children }) {
     Boolean(isApiAuthEnabled && (safelyReadSessionStorage(API_ACCESS_TOKEN_KEY) || safelyReadSessionStorage(API_REFRESH_TOKEN_KEY)))
   );
   const [authError, setAuthError] = useState("");
+  useEffect(() => {
+  if (import.meta.env.PROD || isApiAuthEnabled) {
+    clearLegacyAuthStorage();
+  }
+}, []);
+
 
   // Restore a real Django CRM session after browser refresh. Customer storefront demo
   // login remains separate until the backend provides a dedicated customer role/flow.
@@ -142,7 +151,7 @@ export function AuthProvider({ children }) {
       } catch (error) {
         if (!cancelled) {
           setAccessToken(null);
-          setUser(readSavedCustomerUser());
+          setUser(null);
           setAuthError(error.status === 0
             ? "Could not reconnect to Django to restore your session. Please sign in again when the backend is available."
             : "Your session could not be restored. Please sign in again.");
@@ -160,9 +169,11 @@ export function AuthProvider({ children }) {
   // Demo login is retained for the customer storefront. Real staff login must use loginWithBackend.
   const login = useCallback((userData) => {
     const role = String(userData?.role || "CUSTOMER").toUpperCase();
-    if (isApiAuthEnabled && role !== "CUSTOMER") {
-      throw new Error("Demo staff login is disabled in API authentication mode.");
-    }
+    if (import.meta.env.PROD || isApiAuthEnabled) {
+  throw new Error(
+    "Demo authentication is disabled. Please sign in using the Django API."
+  );
+}
 
     clearApiTokens();
     setAccessToken(null);
@@ -263,18 +274,13 @@ try {
   }, [accessToken, user]);
 
   const logout = useCallback(() => {
-    setUser(null);
-    setAccessToken(null);
-    setAuthError("");
-    clearApiTokens();
-    try {
-      localStorage.removeItem(DEMO_SESSION_KEY);
-    } catch (error) {
-      console.warn("Could not clear demo session:", error);
-    }
-    // The supplied Django backend does not expose a refresh-token blacklist/logout endpoint yet.
-    // This clears this browser session; server-side token revocation remains a backend task.
-  }, []);
+  setUser(null);
+  setAccessToken(null);
+  setAuthError("");
+
+  clearApiTokens();
+  clearLegacyAuthStorage();
+}, []);
 
   const hasRole = useCallback((allowedRoles) => {
     if (!user?.role) return false;

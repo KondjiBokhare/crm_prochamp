@@ -1,6 +1,11 @@
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 export const API_BASE_URL = rawBaseUrl.replace(/\/+$/, "");
-export const AUTH_MODE = String(import.meta.env.VITE_AUTH_MODE || "demo").trim().toLowerCase();
+export const AUTH_MODE = import.meta.env.PROD
+  ? "api"
+  : String(
+      import.meta.env.VITE_AUTH_MODE || "api"
+    ).trim().toLowerCase();
+
 export const isApiAuthEnabled = AUTH_MODE === "api";
 
 export const API_ACCESS_TOKEN_KEY = "techgear_api_access_v1";
